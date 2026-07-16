@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --background: 230 33% 3%;
+    --foreground: 210 40% 98%;
+    --card: 225 24% 8%;
+    --card-foreground: 210 40% 98%;
+    --muted: 224 20% 13%;
+    --muted-foreground: 222 12% 66%;
+    --primary: 258 90% 66%;
+    --primary-foreground: 210 40% 98%;
+    --accent: 199 89% 48%;
+    --accent-foreground: 210 40% 98%;
+    --border: 225 18% 18%;
+  }
+  * { @apply border-border; }
+  body { @apply min-h-screen bg-background text-foreground antialiased; font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+}
+
+.bg-grid {
+  background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
