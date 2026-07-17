@@ -1,0 +1,16 @@
+const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" }
+
+Deno.serve(async (request) => {
+  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
+  if (request.method !== "POST") return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+  const apiKey = Deno.env.get("OPENAI_API_KEY")
+  if (!apiKey) return new Response(JSON.stringify({ error: "OPENAI_API_KEY is not configured." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+  try {
+    const { goal, goalType, timeframe, weeklyHours } = await request.json()
+    if (typeof goal !== "string" || !goal.trim()) throw new Error("A goal is required.")
+    const schema = { type: "object", additionalProperties: false, required: ["title", "summary", "estimated_total_hours", "weekly_milestones", "daily_tasks", "risks", "recommendations"], properties: { title: { type: "string" }, summary: { type: "string" }, estimated_total_hours: { type: "number" }, weekly_milestones: { type: "array", items: { type: "object", additionalProperties: false, required: ["week", "objective", "deliverables", "estimated_hours"], properties: { week: { type: "string" }, objective: { type: "string" }, deliverables: { type: "array", items: { type: "string" } }, estimated_hours: { type: "number" } } } }, daily_tasks: { type: "array", items: { type: "object", additionalProperties: false, required: ["day", "task", "priority", "estimated_hours"], properties: { day: { type: "string" }, task: { type: "string" }, priority: { type: "string", enum: ["High", "Medium", "Low"] }, estimated_hours: { type: "number" } } } }, risks: { type: "array", items: { type: "object", additionalProperties: false, required: ["risk", "mitigation"], properties: { risk: { type: "string" }, mitigation: { type: "string" } } } }, recommendations: { type: "array", items: { type: "string" } } } }
+    const upstream = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.6", stream: true, instructions: "You are StudentOS Planner, an encouraging and pragmatic execution coach. Produce a specific, feasible plan. Respect the student's weekly capacity. Return only data matching the requested JSON schema.", input: `Goal type: ${goalType}\nGoal: ${goal}\nTimeframe: ${timeframe}\nAvailable hours each week: ${weeklyHours}`, text: { format: { type: "json_schema", name: "execution_plan", strict: true, schema } } }) })
+    if (!upstream.ok || !upstream.body) return new Response(JSON.stringify({ error: await upstream.text() }), { status: upstream.status, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    return new Response(upstream.body, { headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } })
+  } catch (error) { return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Invalid request" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }) }
+})

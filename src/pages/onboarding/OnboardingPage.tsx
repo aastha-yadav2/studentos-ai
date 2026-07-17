@@ -46,7 +46,8 @@ export function OnboardingPage() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  if (!user) return <Navigate to="/auth" replace />
+  const userId = user?.id
+  if (!userId) return <Navigate to="/auth" replace />
 
   const update = <K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) => setForm((current) => ({ ...current, [key]: value }))
   const stepValid = [
@@ -75,7 +76,7 @@ export function OnboardingPage() {
     setError(null)
     const skills = form.skills.split(",").map((skill) => skill.trim()).filter(Boolean)
     const { error: saveError } = await supabase.from("student_profiles").upsert({
-      user_id: user.id,
+      user_id: userId,
       semester: form.semester,
       career_goals: form.careerGoals,
       skills,

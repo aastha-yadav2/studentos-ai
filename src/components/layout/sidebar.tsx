@@ -16,7 +16,7 @@ export function Sidebar() {
           <p className="text-xs text-muted-foreground">Command Center</p>
         </div>
       </Link>
-      <nav className="space-y-1">
+      <nav aria-label="Primary navigation" className="space-y-1">
         {appRoutes.map((item) => (
           <NavLink
             key={item.href}
@@ -30,9 +30,9 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="mt-auto rounded-2xl border border-border bg-card/70 p-4">
-        <div className="mb-3 flex items-center gap-2"><Command className="size-4 text-primary" /><Badge>MVP Shell</Badge></div>
-        <p className="text-sm font-medium">Frontend foundation ready</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">Backend integrations and page content will be layered in iterative sprints.</p>
+        <div className="mb-3 flex items-center gap-2"><Command className="size-4 text-primary" /><Badge>Workspace</Badge></div>
+        <p className="text-sm font-medium">Your planning system</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">Tasks, goals, and agents stay connected in one focused workspace.</p>
       </div>
     </aside>
   )

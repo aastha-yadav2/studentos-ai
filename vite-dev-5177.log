@@ -1,0 +1,10 @@
+
+> studentos-ai@0.1.0 dev
+> vite --host 0.0.0.0 --port 5177
+
+
+  VITE v8.1.5  ready in 536 ms
+
+  ➜  Local:   http://localhost:5177/
+  ➜  Network: http://192.168.1.11:5177/
+  ➜  press h + enter to show help

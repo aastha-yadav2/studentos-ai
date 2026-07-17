@@ -1,0 +1,6 @@
+
+> studentos-ai@0.1.0 dev
+> vite --host 0.0.0.0 --port 5176
+
+Port 5176 is in use, trying another one...
+9:58:50 pm [vite] (client) Re-optimizing dependencies because vite config has changed

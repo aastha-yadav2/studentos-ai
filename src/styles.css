@@ -4,6 +4,20 @@
 
 @layer base {
   :root {
+    color-scheme: light;
+    --background: 240 33% 98%;
+    --foreground: 230 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 230 30% 12%;
+    --muted: 232 24% 93%;
+    --muted-foreground: 228 12% 42%;
+    --primary: 258 80% 54%;
+    --primary-foreground: 210 40% 98%;
+    --accent: 199 85% 42%;
+    --accent-foreground: 210 40% 98%;
+    --border: 230 22% 85%;
+  }
+  .dark {
     color-scheme: dark;
     --background: 230 33% 3%;
     --foreground: 210 40% 98%;
@@ -19,9 +33,16 @@
   }
   * { @apply border-border; }
   body { @apply min-h-screen bg-background text-foreground antialiased; font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+  ::selection { @apply bg-primary/30 text-foreground; }
+  :focus-visible { @apply outline-none ring-2 ring-primary/70 ring-offset-2 ring-offset-background; }
+  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 }
 
 .bg-grid {
   background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
   background-size: 48px 48px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
