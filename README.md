@@ -13,7 +13,7 @@ Students usually manage coursework, applications, portfolios, deadlines, and hab
 - **Adaptive, not static:** planning context includes historical completion, skipped work, and habit insights.
 - **Explainable AI:** coaching, predictions, and recommendations state the evidence behind them.
 - **One workspace:** study, career, projects, goals, and productivity use the same source of truth.
-- **Judge-ready demo:** browser-local Demo Mode is isolated from real accounts and requires no onboarding.
+- **Secure by default:** every workspace route requires a verified Supabase session and is scoped by RLS.
 
 ## Highlights
 
@@ -24,7 +24,7 @@ Students usually manage coursework, applications, portfolios, deadlines, and hab
 | Career | Placement roadmap, internship goals, applications, and skill readiness |
 | Reflection | Weekly reviews, monthly analytics, habit learning, coaching, and predictions |
 | Memory | Long-lived profile, preferences, planner history, and AI context |
-| Experience | Responsive shadcn-style UI, Framer Motion, dark mode, loading/error states, and Demo Mode |
+| Experience | Responsive shadcn-style UI, Framer Motion, dark mode, and loading/error states |
 
 ## Architecture
 
@@ -48,7 +48,7 @@ React + Vite UI
   └─ Supabase Edge Functions ───── secure AI boundary
        └─ OpenAI API ───────────── planner, study, career, goal advice
 
-Frontend services: Planner | Memory | Reflection | Career | Study | Demo Mode
+Frontend services: Planner | Memory | Reflection | Career | Study
 ```
 
 The browser reads and writes only the signed-in user’s data through RLS. AI requests include a compact, relevant workspace context and are sent to Edge Functions; the OpenAI key remains server-side. Reflection services derive analytics from tasks and goals, persist their evidence, then feed it back into the Planner.
@@ -74,7 +74,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open the URL printed by Vite. Select **Explore the live demo** on the sign-in screen for a populated local workspace, or configure Supabase for real accounts.
+Open the URL printed by Vite and sign in with a Supabase Auth account. Configure Supabase before running the application.
 
 ### Environment
 

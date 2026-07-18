@@ -2,18 +2,18 @@
 
 ## 0:00–0:20 — Hook
 
-**Click:** open the auth page, hover **Explore the live demo**.  
+**Click:** open the auth page and sign in with the prepared Supabase test account.  
 **Say:** “Students do not have a motivation problem; they have a coordination problem. Coursework, applications, projects, and deadlines compete for the same limited attention.”
 
 ## 0:20–0:50 — Problem
 
-**Click:** enter Demo Mode.  
+**Click:** wait for the authenticated dashboard to load.  
 **Say:** “Most planners produce a schedule once and leave students alone when life changes. StudentOS AI is built to learn from execution, not just intentions.”
 
 ## 0:50–1:20 — Solution
 
 **Click:** point at the demo banner and dashboard metrics.  
-**Say:** “This is a private, zero-setup workspace. The dashboard unifies productivity, consistency, goals, deadlines, and the next best action. Every insight is grounded in recorded work.”
+**Say:** “This is a private authenticated workspace. The dashboard unifies productivity, consistency, goals, deadlines, and the next best action. Every insight is grounded in recorded work.”
 
 ## 1:20–3:10 — Live demo
 
@@ -38,4 +38,4 @@
 
 ## 4:25–4:45 — Closing
 
-**Say:** “StudentOS AI turns a student’s scattered commitments into an adaptive operating system—one that plans, learns, and explains. Demo Mode lets anyone experience that in seconds.”
+**Say:** “StudentOS AI turns a student’s scattered commitments into an adaptive operating system—one that plans, learns, and explains.”

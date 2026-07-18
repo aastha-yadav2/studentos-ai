@@ -2,8 +2,8 @@
 import { lazy, Suspense } from "react"
 import { Navigate, createBrowserRouter } from "react-router-dom"
 import { AppShell } from "@/components/layout/app-shell"
-import { isAuthBypassEnabled } from "@/auth/auth-config"
 import { AppErrorPage } from "@/app/error-page"
+import { ProtectedRoute, PublicOnlyRoute } from "@/auth/route-guards"
 
 const AgentsPage = lazy(() => import("@/pages/agents/AgentsPage").then(({ AgentsPage }) => ({ default: AgentsPage })))
 const AuthPage = lazy(() => import("@/pages/auth/AuthPage").then(({ AuthPage }) => ({ default: AuthPage })))
@@ -23,25 +23,23 @@ export const router = createBrowserRouter([
   { path: "/", element: <Navigate to="/app" replace />, errorElement: <AppErrorPage /> },
   {
     path: "/auth",
-    element: isAuthBypassEnabled ? <Navigate to="/app" replace /> : page(AuthPage),
+    element: <PublicOnlyRoute />,
+    children: [{ index: true, element: page(AuthPage) }],
     errorElement: <AppErrorPage />,
   },
-  { path: "/onboarding", element: page(OnboardingPage), errorElement: <AppErrorPage /> },
+  { path: "/onboarding", element: <ProtectedRoute />, errorElement: <AppErrorPage />, children: [{ index: true, element: page(OnboardingPage) }] },
   {
     path: "/app",
-    element: <AppShell />,
+    element: <ProtectedRoute />,
     errorElement: <AppErrorPage />,
     children: [
-      { index: true, element: page(DashboardPage) },
-      { path: "planner", element: page(PlannerPage) },
-      { path: "study", element: page(StudyPage) },
-      { path: "career", element: page(CareerPage) },
-      { path: "tasks", element: page(TasksPage) },
-      { path: "goals", element: page(GoalsPage) },
-      { path: "memory", element: page(MemoryPage) },
-      { path: "reflection", element: page(ReflectionPage) },
-      { path: "agents", element: page(AgentsPage) },
-      { path: "settings", element: page(SettingsPage) },
+      { element: <AppShell />, children: [
+        { index: true, element: page(DashboardPage) }, { path: "planner", element: page(PlannerPage) },
+        { path: "study", element: page(StudyPage) }, { path: "career", element: page(CareerPage) },
+        { path: "tasks", element: page(TasksPage) }, { path: "goals", element: page(GoalsPage) },
+        { path: "memory", element: page(MemoryPage) }, { path: "reflection", element: page(ReflectionPage) },
+        { path: "agents", element: page(AgentsPage) }, { path: "settings", element: page(SettingsPage) },
+      ] },
     ],
   },
   { path: "*", element: <AppErrorPage /> },

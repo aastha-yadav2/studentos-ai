@@ -1,7 +1,7 @@
 # Phase 15 production audit
 
 **Audit date:** 2026-07-18  
-**Scope:** source, client build, lint, migrations, Edge Function source, docs, and Demo Mode architecture.
+**Scope:** source, client build, lint, migrations, Edge Function source, docs, and authentication architecture.
 
 ## Verified
 
@@ -13,7 +13,7 @@
 | Bundle warning | Resolved | initial app chunk is 57.21 KB / 19.65 KB gzip; vendor chunks are cached separately |
 | Routes | Pass | application pages are lazy-loaded with a Suspense fallback |
 | Docs | Pass | README, API, DB, setup, demo, Devpost, security, license, and roadmap are present |
-| Demo isolation | Pass | Demo Mode uses session-scoped browser state and does not write sample data to Supabase |
+| Authentication | Pass | protected routes require a verified Supabase user session |
 
 ## Fixes applied
 
@@ -30,7 +30,7 @@
 - User-owned data is protected by `user_id` foreign keys and RLS policies in migrations.
 - Inputs are JSON-schema constrained at the model boundary and have basic server validation.
 - React escapes rendered text by default; no unsafe HTML rendering is used.
-- Demo Mode is local-only and separate from real account data.
+- Authentication bypass and mock sessions are removed; workspace access depends on Supabase Auth plus RLS.
 
 ## Remaining deployment checks
 
@@ -46,4 +46,4 @@ These require access to a real Supabase/Vercel project and cannot be truthfully 
 ## Scores
 
 - **Production readiness: 84/100.** The local build, source quality, security boundaries, and documentation are strong. The score remains below launch-ready until real deployment, cross-browser, production RLS, OAuth, and rate-limit checks are completed.
-- **Hackathon readiness: 94/100.** The isolated Demo Mode, walkthrough, polished dashboard, AI streaming experience, documentation, Devpost copy, and demo script are ready for judges.
+- **Hackathon readiness: 92/100.** The authenticated workspace, AI streaming experience, documentation, Devpost copy, and demo script are ready for judges. Prepare a Supabase test account and seeded workspace before presenting.

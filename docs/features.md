@@ -33,7 +33,3 @@ Every product surface follows the same pattern: collect user-owned data under RL
 ## Notifications
 
 Notification preferences are stored in `user_preferences` for task reminders, deadline alerts, weekly summaries, and product updates. Delivery transport is intentionally not implemented yet; this avoids claiming email or push notifications that are not configured.
-
-## Demo Mode
-
-**Purpose:** let judges explore a fully populated product without an account. **Flow:** select **Explore the live demo** on the sign-in page; a session-scoped local flag enables a realistic sample workspace and walkthrough. **Isolation:** no demo data is written to Supabase and exiting returns to the auth page. **UI:** `DemoModeProvider`, `demoDataService`, `OnboardingWalkthrough`.

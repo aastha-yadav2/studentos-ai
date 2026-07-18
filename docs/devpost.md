@@ -16,7 +16,7 @@ StudentOS AI brings academic planning, career readiness, projects, goals, and re
 
 Students are expected to manage exams, applications, portfolios, hackathons, and habits with disconnected tools. StudentOS AI coordinates those commitments into a single command center. Its planner streams a cross-module roadmap; the memory layer retains meaningful context; and the reflection engine turns actual task execution into coaching, predictions, and adaptive recommendations.
 
-The product is intentionally explainable. A student can see why a workload changed, why a task is next, or why deadline risk was raised. Judges can enter an isolated, realistic Demo Mode instantly—no account or seed data required.
+The product is intentionally explainable. A student can see why a workload changed, why a task is next, or why deadline risk was raised. Each workspace is authenticated and protected by Supabase Row Level Security.
 
 ## Built with
 
@@ -32,7 +32,7 @@ Designing a coherent data model across study, career, project, memory, and refle
 
 ## Accomplishments
 
-We built a full adaptive loop: activity → reflection → habits/predictions/coaching → planning context. We also shipped an isolated Demo Mode and streamed planner interaction.
+We built a full adaptive loop: activity → reflection → habits/predictions/coaching → planning context, plus streaming planner interaction secured behind authenticated Edge Function requests.
 
 ## What we learned
 

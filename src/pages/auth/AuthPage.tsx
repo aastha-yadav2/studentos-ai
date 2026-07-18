@@ -1,17 +1,15 @@
 import { useState, type FormEvent } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
-import { GraduationCap, Sparkles } from "lucide-react"
+import { GraduationCap } from "lucide-react"
 import { useAuth } from "@/auth/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { useDemoMode } from "@/lib/demo/demoModeProvider"
 
 type Mode = "login" | "signup"
 
 export function AuthPage() {
   const { signIn, signInWithGoogle, signUp, configurationError } = useAuth()
-  const { enterDemo } = useDemoMode()
   const [mode, setMode] = useState<Mode>("login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -63,7 +61,6 @@ export function AuthPage() {
   }
 
   const isLogin = mode === "login"
-  function startDemo() { enterDemo(); navigate("/app", { replace: true }) }
   return (
     <main className="flex min-h-screen items-center justify-center bg-background bg-grid p-4">
       <Card className="w-full max-w-md">
@@ -84,7 +81,6 @@ export function AuthPage() {
           </form>
           <div className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">or</div>
           <Button className="w-full" variant="secondary" type="button" onClick={handleGoogle} disabled={submitting || Boolean(configurationError)}>Continue with Google</Button>
-          <Button className="w-full border-primary/30 bg-primary/10 text-primary hover:bg-primary/15" variant="secondary" type="button" onClick={startDemo}><Sparkles className="size-4" />Explore the live demo</Button>
           <p className="text-center text-sm text-muted-foreground">{isLogin ? "New to StudentOS AI?" : "Already have an account?"} <button type="button" className="font-medium text-primary hover:underline" onClick={() => switchMode(isLogin ? "signup" : "login")}>{isLogin ? "Create an account" : "Sign in"}</button></p>
         </CardContent>
       </Card>

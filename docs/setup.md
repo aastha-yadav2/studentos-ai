@@ -12,7 +12,7 @@
 8. Start the UI: `npm run dev`.
 9. Validate: `npm run build` and `npm run lint`.
 
-For UI-only work, use the **Explore the live demo** button. `VITE_AUTH_BYPASS=true` is only for local development and must not be enabled in production.
+Authentication is required in every environment. Create a test user in Supabase Auth for local development; do not add an authentication bypass.
 
 ## Deployment
 
@@ -26,6 +26,6 @@ For UI-only work, use the **Explore the live demo** button. `VITE_AUTH_BYPASS=tr
 | --- | --- |
 | “Supabase is not configured” | `.env.local`, Vite restart, and the `VITE_` prefix |
 | AI generation fails | deployed function, access token, and `OPENAI_API_KEY` Supabase secret |
-| Empty workspace | sign in with the intended account, apply migrations, or use Demo Mode |
+| Empty workspace | sign in with the intended account and create initial workspace data |
 | RLS error | table policy, authenticated session, and matching `user_id` |
 | Build failure | Node version, clean install, then `npm run build` |
