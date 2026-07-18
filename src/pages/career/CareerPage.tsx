@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { BriefcaseBusiness, CheckCircle2, Code2, ExternalLink, Loader2, Save, Sparkles, Target } from "lucide-react"
 import { useAuth } from "@/auth/auth-provider"
 import { supabase, supabaseConfigError } from "@/lib/supabase"
+import { buildAIContext } from "@/lib/memory/contextBuilder"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -59,11 +60,12 @@ export function CareerPage() {
   }
 
   async function generateRoadmap() {
-    if (!session) { setError("Your session is unavailable. Please refresh and try again."); return }
+    if (!session || !user) { setError("Your session is unavailable. Please refresh and try again."); return }
     setLoading(true); setError(null); setNotice(null)
     try {
       if (!await saveProfile()) return
-      const result = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/career-roadmap`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ placementGoal: profile.placementGoal, targetDate: profile.targetDate, internships: splitList(profile.internships), companies: splitList(profile.companies), skills: splitList(profile.skills) }) })
+      const memoryContext = await buildAIContext(user.id)
+      const result = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/career-roadmap`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ placementGoal: profile.placementGoal, targetDate: profile.targetDate, internships: splitList(profile.internships), companies: splitList(profile.companies), skills: splitList(profile.skills), memoryContext }) })
       const body = await result.json()
       if (!result.ok) throw new Error(body.error ?? "Could not generate a career roadmap.")
       if (!supabase || !user) throw new Error("Your session is unavailable.")

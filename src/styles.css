@@ -36,6 +36,12 @@
   ::selection { @apply bg-primary/30 text-foreground; }
   :focus-visible { @apply outline-none ring-2 ring-primary/70 ring-offset-2 ring-offset-background; }
   button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  button, a { @apply transition duration-200; }
+  button:not(:disabled):active { transform: scale(.98); }
+}
+
+@layer components {
+  .premium-card { @apply border-border/70 bg-card/75 shadow-xl shadow-primary/[.03] backdrop-blur-sm transition duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-primary/[.08]; }
 }
 
 .bg-grid {

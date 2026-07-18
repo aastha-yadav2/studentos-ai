@@ -1,39 +1,47 @@
+/* eslint-disable react-refresh/only-export-components -- route modules are intentionally lazy-loaded here. */
+import { lazy, Suspense } from "react"
 import { Navigate, createBrowserRouter } from "react-router-dom"
 import { AppShell } from "@/components/layout/app-shell"
-import { AgentsPage } from "@/pages/agents/AgentsPage"
-import { AuthPage } from "@/pages/auth/AuthPage"
-import { DashboardPage } from "@/pages/dashboard/DashboardPage"
-import { CareerPage } from "@/pages/career/CareerPage"
-import { GoalsPage } from "@/pages/goals/GoalsPage"
-import { OnboardingPage } from "@/pages/onboarding/OnboardingPage"
-import { PlannerPage } from "@/pages/planner/PlannerPage"
-import { SettingsPage } from "@/pages/settings/SettingsPage"
-import { StudyPage } from "@/pages/study/StudyPage"
-import { TasksPage } from "@/pages/tasks/TasksPage"
 import { isAuthBypassEnabled } from "@/auth/auth-config"
 import { AppErrorPage } from "@/app/error-page"
+
+const AgentsPage = lazy(() => import("@/pages/agents/AgentsPage").then(({ AgentsPage }) => ({ default: AgentsPage })))
+const AuthPage = lazy(() => import("@/pages/auth/AuthPage").then(({ AuthPage }) => ({ default: AuthPage })))
+const DashboardPage = lazy(() => import("@/pages/dashboard/DashboardPage").then(({ DashboardPage }) => ({ default: DashboardPage })))
+const CareerPage = lazy(() => import("@/pages/career/CareerPage").then(({ CareerPage }) => ({ default: CareerPage })))
+const GoalsPage = lazy(() => import("@/pages/goals/GoalsPage").then(({ GoalsPage }) => ({ default: GoalsPage })))
+const OnboardingPage = lazy(() => import("@/pages/onboarding/OnboardingPage").then(({ OnboardingPage }) => ({ default: OnboardingPage })))
+const PlannerPage = lazy(() => import("@/pages/planner/PlannerPage").then(({ PlannerPage }) => ({ default: PlannerPage })))
+const SettingsPage = lazy(() => import("@/pages/settings/SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage })))
+const StudyPage = lazy(() => import("@/pages/study/StudyPage").then(({ StudyPage }) => ({ default: StudyPage })))
+const TasksPage = lazy(() => import("@/pages/tasks/TasksPage").then(({ TasksPage }) => ({ default: TasksPage })))
+const MemoryPage = lazy(() => import("@/pages/memory/MemoryPage").then(({ MemoryPage }) => ({ default: MemoryPage })))
+const ReflectionPage = lazy(() => import("@/pages/reflection/ReflectionPage").then(({ ReflectionPage }) => ({ default: ReflectionPage })))
+const page = (Page: React.LazyExoticComponent<React.ComponentType>) => <Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">Loading StudentOS…</div>}><Page /></Suspense>
 
 export const router = createBrowserRouter([
   { path: "/", element: <Navigate to="/app" replace />, errorElement: <AppErrorPage /> },
   {
     path: "/auth",
-    element: isAuthBypassEnabled ? <Navigate to="/app" replace /> : <AuthPage />,
+    element: isAuthBypassEnabled ? <Navigate to="/app" replace /> : page(AuthPage),
     errorElement: <AppErrorPage />,
   },
-  { path: "/onboarding", element: <OnboardingPage />, errorElement: <AppErrorPage /> },
+  { path: "/onboarding", element: page(OnboardingPage), errorElement: <AppErrorPage /> },
   {
     path: "/app",
     element: <AppShell />,
     errorElement: <AppErrorPage />,
     children: [
-      { index: true, element: <DashboardPage /> },
-      { path: "planner", element: <PlannerPage /> },
-      { path: "study", element: <StudyPage /> },
-      { path: "career", element: <CareerPage /> },
-      { path: "tasks", element: <TasksPage /> },
-      { path: "goals", element: <GoalsPage /> },
-      { path: "agents", element: <AgentsPage /> },
-      { path: "settings", element: <SettingsPage /> },
+      { index: true, element: page(DashboardPage) },
+      { path: "planner", element: page(PlannerPage) },
+      { path: "study", element: page(StudyPage) },
+      { path: "career", element: page(CareerPage) },
+      { path: "tasks", element: page(TasksPage) },
+      { path: "goals", element: page(GoalsPage) },
+      { path: "memory", element: page(MemoryPage) },
+      { path: "reflection", element: page(ReflectionPage) },
+      { path: "agents", element: page(AgentsPage) },
+      { path: "settings", element: page(SettingsPage) },
     ],
   },
   { path: "*", element: <AppErrorPage /> },

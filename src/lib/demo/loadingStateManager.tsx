@@ -1,0 +1,3 @@
+import { motion } from "framer-motion"
+export function DashboardSkeleton() { return <div className="space-y-6 animate-pulse"><div className="h-24 rounded-3xl bg-muted" /><div className="grid gap-4 sm:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-32 rounded-2xl bg-muted" />)}</div><div className="grid gap-6 lg:grid-cols-2"><div className="h-72 rounded-2xl bg-muted" /><div className="h-72 rounded-2xl bg-muted" /></div></div> }
+export function StreamingText({ text }: { text: string }) { return <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm leading-6 text-muted-foreground">{text}<span className="ml-1 inline-block h-4 w-px animate-pulse bg-primary align-middle" /></motion.p> }

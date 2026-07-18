@@ -1,0 +1,10 @@
+export type ReflectionMetrics = { goalsCompleted: number; goalsMissed: number; tasksCompleted: number; tasksSkipped: number; productivityScore: number; consistencyScore: number; focusScore: number; estimatedStudyHours: number }
+export type WeeklyReflection = { id: string; period_start: string; period_end: string; metrics: ReflectionMetrics; insights: string[]; generated_at: string }
+export type MonthlyReport = { id: string; period_start: string; period_end: string; report: MonthlyReportData; generated_at: string }
+export type MonthlyReportData = { goalCompletionTrend: number[]; studyTimeTrend: number[]; dailyProductivity: { date: string; score: number }[]; mostProductiveDays: string[]; weakestDays: string[]; achievements: TimelineEvent[]; skillGrowth: { skill: string; progress: number }[]; learningStreak: number; careerProgress: number }
+export type HabitInsight = { id: string; insight_key: string; insight_value: unknown; confidence: number; evidence_count: number; updated_at: string }
+export type AdaptiveRecommendation = { id: string; recommendation_type: string; title: string; rationale: string; payload: Record<string, unknown>; status: string; created_at: string }
+export type CoachingMessage = { id: string; message_type: string; message: string; rationale: string; created_at: string }
+export type Prediction = { id: string; prediction_type: string; score: number; label: string; explanation: string; payload: Record<string, unknown>; generated_at: string }
+export type TimelineEvent = { id: string; event_type: string; title: string; description: string | null; occurred_at: string }
+export type LearningSnapshot = { reflection: WeeklyReflection | null; report: MonthlyReport | null; habits: HabitInsight[]; recommendations: AdaptiveRecommendation[]; coaching: CoachingMessage | null; predictions: Prediction[]; timeline: TimelineEvent[] }

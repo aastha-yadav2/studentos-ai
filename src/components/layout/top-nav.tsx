@@ -4,13 +4,16 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/auth/auth-provider"
+import { useDemoMode } from "@/lib/demo/demoModeProvider"
 
 export function TopNav() {
   const { user, signOut } = useAuth()
+  const { enabled, exitDemo } = useDemoMode()
   const navigate = useNavigate()
   const [isSigningOut, setIsSigningOut] = useState(false)
 
   async function handleSignOut() {
+    if (enabled) { exitDemo(); navigate("/auth", { replace: true }); return }
     setIsSigningOut(true)
     const { error } = await signOut()
     setIsSigningOut(false)
@@ -26,9 +29,9 @@ export function TopNav() {
           <Input className="max-w-xl pl-9" placeholder="Search tasks, goals, plans, agents..." />
         </div>
         <Button asChild variant="secondary" className="ml-auto"><Link to="/app/planner"><Sparkles className="size-4" />Ask Planner</Link></Button>
-        <div className="hidden max-w-40 truncate text-right text-xs text-muted-foreground md:block">{user?.email}</div>
+        <div className="hidden max-w-40 truncate text-right text-xs text-muted-foreground md:block">{enabled ? "Aarav · Demo workspace" : user?.email}</div>
         <Button variant="ghost" size="sm" onClick={handleSignOut} disabled={isSigningOut} aria-label="Sign out"><LogOut className="size-4" /><span className="hidden sm:inline">Sign out</span></Button>
-        <div className="flex size-10 items-center justify-center rounded-full border border-border bg-muted text-sm font-semibold">{user?.email?.slice(0, 2).toUpperCase() ?? "SO"}</div>
+        <div className="flex size-10 items-center justify-center rounded-full border border-border bg-muted text-sm font-semibold">{enabled ? "AM" : user?.email?.slice(0, 2).toUpperCase() ?? "SO"}</div>
       </div>
     </header>
   )

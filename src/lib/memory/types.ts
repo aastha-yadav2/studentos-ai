@@ -1,0 +1,8 @@
+export type MemoryType = "profile" | "goal" | "planner" | "conversation" | "preference" | "insight"
+export type MemoryStatus = "active" | "archived"
+export type MemoryProfile = { user_id: string; semester: string | null; degree: string | null; university: string | null; skills: string[]; interests: string[]; preferred_learning_style: string | null; preferred_study_hours: string | null; placement_goals: string[]; internship_goals: string[]; hackathon_interests: string[]; career_aspirations: string | null; updated_at: string }
+export type MemoryEntry = { id: string; user_id: string; memory_type: MemoryType; status: MemoryStatus; summary: string; content: Record<string, unknown>; source: string; importance: number; last_referenced_at: string | null; created_at: string; updated_at: string }
+export type LearnedPreference = { id: string; user_id: string; preference_key: string; preference_value: unknown; confidence: number; evidence_count: number; source: string; updated_at: string }
+export type PlannerHistoryItem = { id: string; title: string; goal: string; goal_type: string; plan: Record<string, unknown>; created_at: string }
+export type PlannerInteraction = { id: string; planner_run_id: string | null; interaction_type: "request" | "plan_summary" | "outcome" | "feedback"; summary: string; content: Record<string, unknown>; meaningful: boolean; created_at: string }
+export type AIContext = { profile: MemoryProfile | null; activeGoals: unknown[]; plannerHistory: PlannerHistoryItem[]; recentInteractions: PlannerInteraction[]; learnedPreferences: LearnedPreference[]; memoryEntries: MemoryEntry[]; taskPatterns: { completedTaskCount: number; averageEstimatedHours: number | null } }
