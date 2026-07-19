@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" }
 const allowed = new Set(["planner", "personalized_study_plan", "career_advice", "goal_recommendations", "resume_review", "reflection_analysis", "reflection_coaching", "task_assistance", "interview_preparation", "essay_improvement", "communication_draft"])
-const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))).map((value) => value.toString(16).padStart(2, "0")).join("")
+const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))))).map((value) => value.toString(16).padStart(2, "0")).join("")
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers })
 const error = (stage, message, status = 502, upstream) => json({ error: message, stage, upstream }, status)
 
