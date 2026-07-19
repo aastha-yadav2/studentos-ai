@@ -1,32 +1,65 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" }
-const allowed = new Set(["resume_review", "personalized_study_plan", "career_advice", "reflection_analysis", "interview_preparation", "essay_improvement", "communication_draft"])
-const fallback = (reason: string) => ({ source: "rules", fallback: true, message: `AI is unavailable (${reason}). Your workspace tools and rule-based plan remain available.` })
-const hash = async (value: unknown) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))))).map((v) => v.toString(16).padStart(2, "0")).join("")
+const allowed = new Set(["planner", "personalized_study_plan", "career_advice", "goal_recommendations", "resume_review", "reflection_analysis", "reflection_coaching", "task_assistance", "interview_preparation", "essay_improvement", "communication_draft"])
+const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))).map((value) => value.toString(16).padStart(2, "0")).join("")
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers })
+const error = (stage, message, status = 502, upstream) => json({ error: message, stage, upstream }, status)
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers })
-  if (request.method !== "POST") return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers })
+  if (request.method !== "POST") return error("router", "Method not allowed", 405)
+
   const authorization = request.headers.get("Authorization")
-  if (!authorization) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers })
+  if (!authorization) return error("authentication", "Unauthorized", 401)
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authorization } } })
-  const { data: auth } = await db.auth.getUser()
-  if (!auth.user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers })
-  const { requestType, payload } = await request.json()
-  if (!allowed.has(requestType)) return new Response(JSON.stringify(fallback("handled by rules")), { headers })
+  const { data: auth, error: authError } = await db.auth.getUser()
+  if (authError || !auth.user) return error("authentication", authError?.message ?? "Unauthorized", 401)
+
+  let requestType
+  let payload
+  try { ({ requestType, payload } = await request.json()) } catch { return error("request", "Request body must be valid JSON.", 400) }
+  if (!allowed.has(requestType)) return error("router", `Unsupported AI request type: ${requestType}`, 400)
+
   const requestHash = await hash(payload)
-  const { data: cached } = await db.from("ai_response_cache").select("response").eq("request_type", requestType).eq("request_hash", requestHash).gt("expires_at", new Date().toISOString()).maybeSingle()
-  if (cached) return new Response(JSON.stringify({ ...cached.response, source: "cache" }), { headers })
-  const { data: allowedToday } = await db.rpc("consume_ai_quota", { p_limit: 20 })
-  if (!allowedToday) return new Response(JSON.stringify(fallback("daily limit reached")), { headers })
+  console.info(JSON.stringify({ event: "ai_request", requestType, userId: auth.user.id, path: "browser>ai-router" }))
+  const { data: cached, error: cacheError } = await db.from("ai_response_cache").select("response").eq("user_id", auth.user.id).eq("request_type", requestType).eq("request_hash", requestHash).gt("expires_at", new Date().toISOString()).maybeSingle()
+  if (cacheError) console.warn(JSON.stringify({ event: "ai_cache_read_failed", requestType, message: cacheError.message }))
+  if (cached) {
+    console.info(JSON.stringify({ event: "ai_response", requestType, source: "cache" }))
+    return json({ ...cached.response, source: "cache", fallback: false, trace: ["browser", "ai-router", "cache"] })
+  }
+
+  const { data: allowedToday, error: quotaError } = await db.rpc("consume_ai_quota", { p_limit: 20 })
+  if (quotaError) return error("quota", quotaError.message, 500)
+  if (!allowedToday) return error("quota", "Daily AI request limit reached. Try again tomorrow.", 429)
+
   const apiKey = Deno.env.get("GEMINI_API_KEY")
-  if (!apiKey) return new Response(JSON.stringify(fallback("Gemini is not configured")), { headers })
+  if (!apiKey) return error("configuration", "GEMINI_API_KEY is not configured in Supabase Edge Function secrets.", 500)
+  console.info(JSON.stringify({ event: "ai_secret_loaded", requestType, secret: "GEMINI_API_KEY" }))
+
   try {
-    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: `You are StudentOS. Provide safe, practical ${requestType.replaceAll("_", " ")}. Return only JSON with a single content field.` }] }, contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }], generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { content: { type: "STRING" } }, required: ["content"] } } }) })
-    const body = await upstream.json(); if (!upstream.ok) return new Response(JSON.stringify(fallback("Gemini is unavailable")), { headers })
-    const response = JSON.parse(body.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}"); if (!response.content) return new Response(JSON.stringify(fallback("Gemini returned no usable response")), { headers })
-    await db.from("ai_response_cache").upsert({ user_id: auth.user.id, request_type: requestType, request_hash: requestHash, response })
-    return new Response(JSON.stringify({ ...response, source: "gemini" }), { headers })
-  } catch { return new Response(JSON.stringify(fallback("Gemini is unavailable")), { headers }) }
+    console.info(JSON.stringify({ event: "gemini_request", requestType, model: "gemini-2.5-flash" }))
+    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      signal: AbortSignal.timeout(55_000), method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: `You are the StudentOS ${requestType.replaceAll("_", " ")} agent. Provide safe, practical, personalized help. Follow any output shape requested in the user payload. Return only JSON with one string property named content; content must contain the requested JSON or text.` }] }, contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }], generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { content: { type: "STRING" } }, required: ["content"] } } })
+    })
+    const upstreamBody = await upstream.json().catch(() => null)
+    if (!upstream.ok) {
+      const message = upstreamBody?.error?.message ?? `Gemini returned HTTP ${upstream.status}.`
+      console.error(JSON.stringify({ event: "gemini_error", requestType, status: upstream.status, message }))
+      return error("gemini", message, upstream.status, upstreamBody?.error)
+    }
+    const response = JSON.parse(upstreamBody?.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}")
+    if (typeof response.content !== "string" || !response.content.trim()) return error("gemini", "Gemini returned no usable content.", 502, upstreamBody)
+    const cacheResponse = { content: response.content }
+    const { error: cacheWriteError } = await db.from("ai_response_cache").upsert({ user_id: auth.user.id, request_type: requestType, request_hash: requestHash, response: cacheResponse })
+    if (cacheWriteError) console.warn(JSON.stringify({ event: "ai_cache_write_failed", requestType, message: cacheWriteError.message }))
+    console.info(JSON.stringify({ event: "ai_response", requestType, source: "gemini", path: "browser>ai-router>gemini>response" }))
+    return json({ ...cacheResponse, source: "gemini", fallback: false, trace: ["browser", "ai-router", "gemini", "response"] })
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : "Gemini request failed."
+    console.error(JSON.stringify({ event: "gemini_error", requestType, message }))
+    return error("gemini", message)
+  }
 })

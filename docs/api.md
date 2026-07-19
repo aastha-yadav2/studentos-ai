@@ -4,14 +4,14 @@ All current API endpoints are Supabase Edge Functions under:
 
 `https://<project-ref>.supabase.co/functions/v1/<route>`
 
-Use `Authorization: Bearer <Supabase access token>` and `Content-Type: application/json` for POST requests. Functions return JSON except `planner-stream`, which returns server-sent events.
+Use `Authorization: Bearer <Supabase access token>` and `Content-Type: application/json` for POST requests. AI generation is routed through `ai-router`.
 
-## `POST /planner-stream`
+## `POST /ai-router`
 
-Creates a streamed, cross-module plan. Input: `{ goal, goalType, timeframe, weeklyHours, workspaceContext }`. The context contains profile, active goals/tasks, study/career facts, memory, and adaptive-learning signals. Output: SSE `response.output_text.delta` events whose final text is structured plan JSON. Authentication is required.
+Creates Gemini responses for all AI request types. Input: `{ requestType, payload }`. Output: `{ content, source: "gemini" | "cache", trace }`. Authentication is required.
 
 ```json
-{"goal":"Prepare for frontend interviews","goalType":"Internship","timeframe":"6 weeks","weeklyHours":10,"workspaceContext":{}}
+{"requestType":"planner","payload":{"goal":"Prepare for frontend interviews","goalType":"Internship","timeframe":"6 weeks","weeklyHours":10}}
 ```
 
 ## `POST /study-plan`
@@ -28,7 +28,7 @@ Returns contextual milestone and execution suggestions. Input: `{ goal, mileston
 
 ## `GET /ai-configuration`
 
-Checks whether the server-side OpenAI secret is configured. Output: `{ "configured": true, "model": "gpt-5.6" }`. Authentication header is sent by the client; this endpoint never returns the key.
+Checks whether the server-side Gemini secret is configured. Output: `{ "configured": true, "model": "gemini-2.5-flash" }`. Authentication header is sent by the client; this endpoint never returns the key.
 
 ### Errors
 

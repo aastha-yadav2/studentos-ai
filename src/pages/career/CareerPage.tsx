@@ -20,8 +20,6 @@ type Roadmap = {
 
 const emptyProfile: CareerProfile = { placementGoal: "", targetDate: "", internships: "", companies: "", skills: "" }
 const splitList = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean)
-function fallbackRoadmap(payload: { placementGoal?: string; skills?: string[] }): Roadmap { const skills = payload.skills?.length ? payload.skills : ["Core role skill"]; return { title: `Rule-based roadmap: ${payload.placementGoal ?? "Career goal"}`, summary: "A practical fallback roadmap built from your saved goal and skills.", milestones: [{ timeframe: "This week", objective: "Define one measurable role-ready outcome", actions: ["Choose a target role", "Schedule two focused skill sessions"] }], recommended_projects: [{ title: "Role-aligned portfolio increment", why_it_matters: "Shows evidence of the skills employers need.", skills, scope: "Build one small, deployable feature and document the decisions." }], learning_resources: skills.map((skill) => ({ topic: skill, resource: "Official documentation and a focused practice project", reason: "Build demonstrable, role-relevant evidence." })), application_strategy: ["Tailor one application at a time.", "Track applications and follow-ups weekly."] } }
-async function careerRouterFetch(session: import("@supabase/supabase-js").Session, request: RequestInit) { const payload = JSON.parse(String(request.body ?? "{}")); const result = await requestAI<{ content?: string }>(session, "career_advice", { ...payload, instruction: "Return a complete JSON career roadmap with title, summary, milestones, recommended_projects, learning_resources, and application_strategy." }); let roadmap: Roadmap | null = null; try { roadmap = result.data?.content ? JSON.parse(result.data.content) as Roadmap : null } catch { roadmap = null } return { ok: true, json: async (): Promise<{ roadmap: Roadmap; error?: string }> => ({ roadmap: roadmap ?? fallbackRoadmap(payload) }) } }
 
 export function CareerPage() {
   const { session, user } = useAuth()
@@ -30,7 +28,6 @@ export function CareerPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const fetch = (_url: string, request: RequestInit) => careerRouterFetch(session!, request)
 
   const loadCareerData = useCallback(async () => {
     if (!supabase || !user) return
@@ -69,17 +66,17 @@ export function CareerPage() {
     try {
       if (!await saveProfile()) return
       const memoryContext = await buildAIContext(user.id)
-      const result = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/career-roadmap`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ placementGoal: profile.placementGoal, targetDate: profile.targetDate, internships: splitList(profile.internships), companies: splitList(profile.companies), skills: splitList(profile.skills), memoryContext }) })
-      const body = await result.json()
-      if (!result.ok) throw new Error(body.error ?? "Could not generate a career roadmap.")
+      const result = await requestAI<{ content: string }>(session, "career_advice", { placementGoal: profile.placementGoal, targetDate: profile.targetDate, internships: splitList(profile.internships), companies: splitList(profile.companies), skills: splitList(profile.skills), memoryContext, instruction: "Return a complete JSON career roadmap with title, summary, milestones, recommended_projects, learning_resources, and application_strategy." })
+      const generatedRoadmap = JSON.parse(result.data.content) as Roadmap
+      if (!generatedRoadmap?.title || !Array.isArray(generatedRoadmap.milestones)) throw new Error("Gemini returned an incomplete career roadmap. Please try again.")
       if (!supabase || !user) throw new Error("Your session is unavailable.")
       const [roadmapSave, activitySave] = await Promise.all([
-        supabase.from("career_roadmaps").insert({ user_id: user.id, title: body.roadmap.title, roadmap: body.roadmap }),
-        supabase.from("activity_events").insert({ user_id: user.id, event_type: "career_roadmap_generated", description: `Generated career roadmap: ${body.roadmap.title}` }),
+        supabase.from("career_roadmaps").insert({ user_id: user.id, title: generatedRoadmap.title, roadmap: generatedRoadmap }),
+        supabase.from("activity_events").insert({ user_id: user.id, event_type: "career_roadmap_generated", description: `Generated career roadmap: ${generatedRoadmap.title}` }),
       ])
       if (roadmapSave.error) throw new Error(roadmapSave.error.message)
       if (activitySave.error) throw new Error(activitySave.error.message)
-      setRoadmap(body.roadmap as Roadmap); setNotice("Roadmap generated and saved to your workspace.")
+      setRoadmap(generatedRoadmap); setNotice(`Gemini ${result.source === "cache" ? "cached" : "generated"} roadmap saved to your workspace.`)
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not generate a career roadmap.") }
     finally { setLoading(false) }
   }
@@ -96,7 +93,7 @@ export function CareerPage() {
         <p className="text-xs text-muted-foreground">Use commas to separate items.</p>
         <Button variant="secondary" onClick={() => void saveProfile()} disabled={loading}><Save className="size-4" />Save career details</Button>
       </div></CardContent></Card>
-      <Card><CardContent className="p-5 sm:p-6"><h2 className="flex items-center gap-2 font-semibold"><Sparkles className="size-4 text-primary" />Build your roadmap</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">GPT-5.6 will prioritize your biggest gaps, align portfolio work to your targets, and make the next steps concrete.</p><div className="mt-6 rounded-2xl border border-border bg-muted/15 p-4"><p className="text-sm font-medium">Your roadmap includes</p><ul className="mt-3 space-y-2 text-sm text-muted-foreground"><li className="flex gap-2"><CheckCircle2 className="size-4 shrink-0 text-primary" />Time-bound milestones</li><li className="flex gap-2"><Code2 className="size-4 shrink-0 text-primary" />Portfolio project recommendations</li><li className="flex gap-2"><ExternalLink className="size-4 shrink-0 text-primary" />Focused learning resources and application tactics</li></ul></div>{error && <p role="alert" className="mt-5 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}{notice && <p className="mt-5 rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm text-primary">{notice}</p>}<Button size="lg" onClick={() => void generateRoadmap()} disabled={loading} className="mt-5 w-full">{loading ? <><Loader2 className="size-4 animate-spin" />Building roadmap...</> : <><Sparkles className="size-4" />Generate career roadmap</>}</Button></CardContent></Card>
+      <Card><CardContent className="p-5 sm:p-6"><h2 className="flex items-center gap-2 font-semibold"><Sparkles className="size-4 text-primary" />Build your roadmap</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Gemini will prioritize your biggest gaps, align portfolio work to your targets, and make the next steps concrete.</p><div className="mt-6 rounded-2xl border border-border bg-muted/15 p-4"><p className="text-sm font-medium">Your roadmap includes</p><ul className="mt-3 space-y-2 text-sm text-muted-foreground"><li className="flex gap-2"><CheckCircle2 className="size-4 shrink-0 text-primary" />Time-bound milestones</li><li className="flex gap-2"><Code2 className="size-4 shrink-0 text-primary" />Portfolio project recommendations</li><li className="flex gap-2"><ExternalLink className="size-4 shrink-0 text-primary" />Focused learning resources and application tactics</li></ul></div>{error && <p role="alert" className="mt-5 rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}{notice && <p className="mt-5 rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm text-primary">{notice}</p>}<Button size="lg" onClick={() => void generateRoadmap()} disabled={loading} className="mt-5 w-full">{loading ? <><Loader2 className="size-4 animate-spin" />Building roadmap...</> : <><Sparkles className="size-4" />Generate career roadmap</>}</Button></CardContent></Card>
     </div>
     {roadmap && <RoadmapView roadmap={roadmap} />}
   </section>

@@ -78,15 +78,15 @@ Open the URL printed by Vite and sign in with a Supabase Auth account. Configure
 
 ### Environment
 
-See [.env.example](.env.example). Never place `OPENAI_API_KEY` in a `VITE_` variable or commit it.
+See [.env.example](.env.example). Never place `GEMINI_API_KEY` in a `VITE_` variable or commit it.
 
 ### Supabase setup
 
 1. Create a Supabase project and copy its URL and anon key to `.env.local`.
 2. Link the CLI: `supabase link --project-ref <project-ref>`.
 3. Apply migrations: `supabase db push`.
-4. Configure the AI secret: `supabase secrets set OPENAI_API_KEY=<key>`.
-5. Deploy functions: `supabase functions deploy planner-stream study-plan career-roadmap goal-recommendations ai-configuration`.
+4. Configure the AI secret: `supabase secrets set GEMINI_API_KEY=<key>`.
+5. Deploy functions: `supabase functions deploy ai-router ai-configuration`.
 
 ### Checks and deployment
 
