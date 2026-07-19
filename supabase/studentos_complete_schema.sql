@@ -228,6 +228,20 @@ do $$ declare t text; begin
   end loop;
 end $$;
 
+-- RLS policies restrict rows; these grants allow authenticated PostgREST
+-- requests to reach those policies. Anonymous access remains denied.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on table
+  public.student_profiles, public.user_preferences, public.goals, public.goal_milestones,
+  public.student_tasks, public.deadlines, public.planner_runs, public.ai_recommendations,
+  public.activity_events, public.subjects, public.study_plans, public.career_profiles,
+  public.career_roadmaps, public.user_memory_profiles, public.ai_memory_entries,
+  public.planner_interactions, public.learned_preferences, public.weekly_reflections,
+  public.monthly_performance_reports, public.habit_insights, public.adaptive_recommendations,
+  public.coaching_messages, public.predictions, public.reflection_timeline_events
+to authenticated;
+revoke all on all tables in schema public from anon;
+
 -- ── Optional, safe seed data ────────────────────────────────────────────────
 -- The function is executable but does not run automatically. It requires an existing
 -- auth.users UUID, preserving the foreign key and RLS model. Example:
