@@ -3,15 +3,19 @@ import { BookOpen, CalendarDays, Loader2, Plus, Sparkles, Trash2 } from "lucide-
 import { supabase, supabaseConfigError } from "@/lib/supabase"
 import { useAuth } from "@/auth/auth-provider"
 import { buildAIContext } from "@/lib/memory/contextBuilder"
+import { requestAI } from "@/lib/ai/router-client"
+import { studyTemplate } from "@/lib/rules/workspace-rules"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 
 type Subject = { id: string; name: string; exam_date: string; confidence: number }
 type StudyPlan = { title: string; overview: string; weekly_schedule: { week: string; focus: string; total_hours: number; sessions: { day: string; subject: string; topic: string; hours: number; method: string }[] }[]; revision_plan: { subject: string; strategy: string; last_week_actions: string[] }[]; recommendations: string[] }
+async function studyRouterFetch(session: import("@supabase/supabase-js").Session, request: RequestInit) { const payload = JSON.parse(String(request.body ?? "{}")); const fallback = studyTemplate((payload.subjects ?? []).map((item: { name: string; examDate: string; confidence: number }) => ({ name: item.name, exam_date: item.examDate, confidence: item.confidence })), Number(payload.weeklyHours) || 10); const result = await requestAI<{ content?: string }>(session, "personalized_study_plan", { ...payload, instruction: "Return a complete JSON study plan with title, overview, weekly_schedule, revision_plan, and recommendations." }); let plan: StudyPlan | null = null; try { plan = result.data?.content ? JSON.parse(result.data.content) as StudyPlan : null } catch { plan = null } return { ok: true, json: async (): Promise<{ plan: StudyPlan; error?: string }> => ({ plan: plan ?? fallback }) } }
 
 export function StudyPage() {
   const { session, user } = useAuth(); const [subjects, setSubjects] = useState<Subject[]>([]); const [name, setName] = useState(""); const [examDate, setExamDate] = useState(""); const [confidence, setConfidence] = useState("3"); const [hours, setHours] = useState("10"); const [plan, setPlan] = useState<StudyPlan | null>(null); const [loading, setLoading] = useState(false); const [error, setError] = useState<string | null>(null)
+  const fetch = (_url: string, request: RequestInit) => studyRouterFetch(session!, request)
   const loadSubjects = useCallback(async () => { if (!supabase || !user) return; const { data, error } = await supabase.from("subjects").select("id,name,exam_date,confidence").eq("user_id", user.id).order("exam_date"); if (error) setError(error.message); else setSubjects(data ?? []) }, [user])
   useEffect(() => { const timer = window.setTimeout(() => { void loadSubjects() }, 0); return () => window.clearTimeout(timer) }, [loadSubjects])
   async function addSubject(event: FormEvent) { event.preventDefault(); if (!supabase || !user || !name.trim() || !examDate) return; const { error } = await supabase.from("subjects").insert({ user_id: user.id, name: name.trim(), exam_date: examDate, confidence: Number(confidence) }); if (error) setError(error.message); else { setName(""); setExamDate(""); await loadSubjects() } }

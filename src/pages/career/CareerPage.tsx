@@ -3,6 +3,7 @@ import { BriefcaseBusiness, CheckCircle2, Code2, ExternalLink, Loader2, Save, Sp
 import { useAuth } from "@/auth/auth-provider"
 import { supabase, supabaseConfigError } from "@/lib/supabase"
 import { buildAIContext } from "@/lib/memory/contextBuilder"
+import { requestAI } from "@/lib/ai/router-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -19,6 +20,8 @@ type Roadmap = {
 
 const emptyProfile: CareerProfile = { placementGoal: "", targetDate: "", internships: "", companies: "", skills: "" }
 const splitList = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean)
+function fallbackRoadmap(payload: { placementGoal?: string; skills?: string[] }): Roadmap { const skills = payload.skills?.length ? payload.skills : ["Core role skill"]; return { title: `Rule-based roadmap: ${payload.placementGoal ?? "Career goal"}`, summary: "A practical fallback roadmap built from your saved goal and skills.", milestones: [{ timeframe: "This week", objective: "Define one measurable role-ready outcome", actions: ["Choose a target role", "Schedule two focused skill sessions"] }], recommended_projects: [{ title: "Role-aligned portfolio increment", why_it_matters: "Shows evidence of the skills employers need.", skills, scope: "Build one small, deployable feature and document the decisions." }], learning_resources: skills.map((skill) => ({ topic: skill, resource: "Official documentation and a focused practice project", reason: "Build demonstrable, role-relevant evidence." })), application_strategy: ["Tailor one application at a time.", "Track applications and follow-ups weekly."] } }
+async function careerRouterFetch(session: import("@supabase/supabase-js").Session, request: RequestInit) { const payload = JSON.parse(String(request.body ?? "{}")); const result = await requestAI<{ content?: string }>(session, "career_advice", { ...payload, instruction: "Return a complete JSON career roadmap with title, summary, milestones, recommended_projects, learning_resources, and application_strategy." }); let roadmap: Roadmap | null = null; try { roadmap = result.data?.content ? JSON.parse(result.data.content) as Roadmap : null } catch { roadmap = null } return { ok: true, json: async (): Promise<{ roadmap: Roadmap; error?: string }> => ({ roadmap: roadmap ?? fallbackRoadmap(payload) }) } }
 
 export function CareerPage() {
   const { session, user } = useAuth()
@@ -27,6 +30,7 @@ export function CareerPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const fetch = (_url: string, request: RequestInit) => careerRouterFetch(session!, request)
 
   const loadCareerData = useCallback(async () => {
     if (!supabase || !user) return
