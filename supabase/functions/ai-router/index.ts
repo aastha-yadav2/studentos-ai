@@ -20,12 +20,13 @@ Deno.serve(async (request) => {
   if (cached) return new Response(JSON.stringify({ ...cached.response, source: "cache" }), { headers })
   const { data: allowedToday } = await db.rpc("consume_ai_quota", { p_limit: 20 })
   if (!allowedToday) return new Response(JSON.stringify(fallback("daily limit reached")), { headers })
-  const apiKey = Deno.env.get("OPENAI_API_KEY")
-  if (!apiKey) return new Response(JSON.stringify(fallback("AI is not configured")), { headers })
+  const apiKey = Deno.env.get("GEMINI_API_KEY")
+  if (!apiKey) return new Response(JSON.stringify(fallback("Gemini is not configured")), { headers })
   try {
-    const upstream = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "gpt-5.6", instructions: `You are StudentOS. Provide safe, practical ${requestType.replaceAll("_", " ")}. Return JSON with a single 'content' field.`, input: JSON.stringify(payload), text: { format: { type: "json_schema", name: "studentos_response", strict: true, schema: { type: "object", additionalProperties: false, required: ["content"], properties: { content: { type: "string" } } } } } }) })
-    const body = await upstream.json(); if (!upstream.ok) return new Response(JSON.stringify(fallback("provider unavailable")), { headers })
-    const response = JSON.parse(body.output_text); await db.from("ai_response_cache").upsert({ user_id: auth.user.id, request_type: requestType, request_hash: requestHash, response })
-    return new Response(JSON.stringify({ ...response, source: "gpt" }), { headers })
-  } catch { return new Response(JSON.stringify(fallback("provider unavailable")), { headers }) }
+    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: `You are StudentOS. Provide safe, practical ${requestType.replaceAll("_", " ")}. Return only JSON with a single content field.` }] }, contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }], generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { content: { type: "STRING" } }, required: ["content"] } } }) })
+    const body = await upstream.json(); if (!upstream.ok) return new Response(JSON.stringify(fallback("Gemini is unavailable")), { headers })
+    const response = JSON.parse(body.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}"); if (!response.content) return new Response(JSON.stringify(fallback("Gemini returned no usable response")), { headers })
+    await db.from("ai_response_cache").upsert({ user_id: auth.user.id, request_type: requestType, request_hash: requestHash, response })
+    return new Response(JSON.stringify({ ...response, source: "gemini" }), { headers })
+  } catch { return new Response(JSON.stringify(fallback("Gemini is unavailable")), { headers }) }
 })
