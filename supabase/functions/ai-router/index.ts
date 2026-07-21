@@ -34,32 +34,44 @@ Deno.serve(async (request) => {
   if (quotaError) return error("quota", quotaError.message, 500)
   if (!allowedToday) return error("quota", "Daily AI request limit reached. Try again tomorrow.", 429)
 
-  const apiKey = Deno.env.get("GEMINI_API_KEY")
-  if (!apiKey) return error("configuration", "GEMINI_API_KEY is not configured in Supabase Edge Function secrets.", 500)
-  console.info(JSON.stringify({ event: "ai_secret_loaded", requestType, secret: "GEMINI_API_KEY" }))
+  const apiKey = Deno.env.get("GROQ_API_KEY")
+  if (!apiKey) return error("configuration", "GROQ_API_KEY is not configured in Supabase Edge Function secrets.", 500)
+  console.info(JSON.stringify({ event: "ai_secret_loaded", requestType, secret: "GROQ_API_KEY" }))
 
   try {
-    console.info(JSON.stringify({ event: "gemini_request", requestType, model: "gemini-2.5-flash" }))
-    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
-      signal: AbortSignal.timeout(55_000), method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: `You are the StudentOS ${requestType.replaceAll("_", " ")} agent. Provide safe, practical, personalized help. Follow any output shape requested in the user payload. Return only JSON with one string property named content; content must contain the requested JSON or text.` }] }, contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }], generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { content: { type: "STRING" } }, required: ["content"] } } })
-    })
-    const upstreamBody = await upstream.json().catch(() => null)
-    if (!upstream.ok) {
-      const message = upstreamBody?.error?.message ?? `Gemini returned HTTP ${upstream.status}.`
-      console.error(JSON.stringify({ event: "gemini_error", requestType, status: upstream.status, message }))
-      return error("gemini", message, upstream.status, upstreamBody?.error)
+    const models = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"]
+    let upstream: Response | undefined
+    let upstreamBody: unknown
+    let model = models[0]
+
+    for (const candidate of models) {
+      model = candidate
+      console.info(JSON.stringify({ event: "groq_request", requestType, model }))
+      upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        signal: AbortSignal.timeout(55_000), method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, messages: [{ role: "system", content: `You are the StudentOS ${requestType.replaceAll("_", " ")} agent. Provide safe, practical, personalized help. Follow any output shape requested in the user payload. Return only JSON with one string property named content; content must contain the requested JSON or text.` }, { role: "user", content: JSON.stringify(payload) }], response_format: { type: "json_object" } })
+      })
+      upstreamBody = await upstream.json().catch(() => null)
+      if (upstream.ok || candidate === models[models.length - 1]) break
+      console.warn(JSON.stringify({ event: "groq_model_fallback", requestType, model, fallbackModel: models[1], status: upstream.status }))
     }
-    const response = JSON.parse(upstreamBody?.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}")
-    if (typeof response.content !== "string" || !response.content.trim()) return error("gemini", "Gemini returned no usable content.", 502, upstreamBody)
+
+    if (!upstream) return error("groq", "Groq request failed.", 502)
+    if (!upstream.ok) {
+      const message = (upstreamBody as { error?: { message?: string } } | null)?.error?.message ?? `Groq returned HTTP ${upstream.status}.`
+      console.error(JSON.stringify({ event: "groq_error", requestType, status: upstream.status, message }))
+      return error("groq", message, upstream.status, (upstreamBody as { error?: unknown } | null)?.error)
+    }
+    const response = JSON.parse((upstreamBody as { choices?: Array<{ message?: { content?: string } }> } | null)?.choices?.[0]?.message?.content ?? "{}")
+    if (typeof response.content !== "string" || !response.content.trim()) return error("groq", "Groq returned no usable content.", 502, upstreamBody)
     const cacheResponse = { content: response.content }
     const { error: cacheWriteError } = await db.from("ai_response_cache").upsert({ user_id: auth.user.id, request_type: requestType, request_hash: requestHash, response: cacheResponse })
     if (cacheWriteError) console.warn(JSON.stringify({ event: "ai_cache_write_failed", requestType, message: cacheWriteError.message }))
-    console.info(JSON.stringify({ event: "ai_response", requestType, source: "gemini", path: "browser>ai-router>gemini>response" }))
-    return json({ ...cacheResponse, source: "gemini", fallback: false, trace: ["browser", "ai-router", "gemini", "response"] })
+    console.info(JSON.stringify({ event: "ai_response", requestType, source: "groq", path: "browser>ai-router>groq>response" }))
+    return json({ ...cacheResponse, source: "groq", fallback: false, trace: ["browser", "ai-router", "groq", "response"] })
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Gemini request failed."
-    console.error(JSON.stringify({ event: "gemini_error", requestType, message }))
-    return error("gemini", message)
+    const message = caught instanceof Error ? caught.message : "Groq request failed."
+    console.error(JSON.stringify({ event: "groq_error", requestType, message }))
+    return error("groq", message)
   }
 })
