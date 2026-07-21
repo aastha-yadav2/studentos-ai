@@ -20,6 +20,23 @@ type Roadmap = {
 
 const emptyProfile: CareerProfile = { placementGoal: "", targetDate: "", internships: "", companies: "", skills: "" }
 const splitList = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean)
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
+const asString = (value: unknown, fallback = ""): string => typeof value === "string" ? value : fallback
+const stringList = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+const fallbackRoadmap: Roadmap = { title: "Career roadmap unavailable", summary: "The saved roadmap could not be read. Generate a new roadmap to continue.", milestones: [], recommended_projects: [], learning_resources: [], application_strategy: [] }
+
+function normalizeRoadmap(value: unknown): Roadmap {
+  if (!isRecord(value)) return { ...fallbackRoadmap }
+  return {
+    ...value,
+    title: asString(value.title, fallbackRoadmap.title),
+    summary: asString(value.summary),
+    milestones: Array.isArray(value.milestones) ? value.milestones.filter(isRecord).map((item) => ({ timeframe: asString(item.timeframe), objective: asString(item.objective), actions: stringList(item.actions) })) : [],
+    recommended_projects: Array.isArray(value.recommended_projects) ? value.recommended_projects.filter(isRecord).map((item) => ({ title: asString(item.title), why_it_matters: asString(item.why_it_matters), skills: stringList(item.skills), scope: asString(item.scope) })) : [],
+    learning_resources: Array.isArray(value.learning_resources) ? value.learning_resources.filter(isRecord).map((item) => ({ topic: asString(item.topic), resource: asString(item.resource), reason: asString(item.reason) })) : [],
+    application_strategy: stringList(value.application_strategy),
+  } as Roadmap
+}
 
 export function CareerPage() {
   const { session, user } = useAuth()
@@ -38,7 +55,7 @@ export function CareerPage() {
     const failed = profileResult.error ?? roadmapResult.error
     if (failed) { setError(failed.message); return }
     if (profileResult.data) setProfile({ placementGoal: profileResult.data.placement_goal, targetDate: profileResult.data.target_date ?? "", internships: profileResult.data.internships.join(", "), companies: profileResult.data.companies.join(", "), skills: profileResult.data.skills.join(", ") })
-    if (roadmapResult.data) setRoadmap(roadmapResult.data.roadmap as Roadmap)
+    if (roadmapResult.data) setRoadmap(normalizeRoadmap(roadmapResult.data.roadmap))
   }, [user])
 
   useEffect(() => {
@@ -67,8 +84,9 @@ export function CareerPage() {
       if (!await saveProfile()) return
       const memoryContext = await buildAIContext(user.id)
       const result = await requestAI<{ content: string }>(session, "career_advice", { placementGoal: profile.placementGoal, targetDate: profile.targetDate, internships: splitList(profile.internships), companies: splitList(profile.companies), skills: splitList(profile.skills), memoryContext, instruction: "Return a complete JSON career roadmap with title, summary, milestones, recommended_projects, learning_resources, and application_strategy." })
-      const generatedRoadmap = JSON.parse(result.data.content) as Roadmap
-      if (!generatedRoadmap?.title || !Array.isArray(generatedRoadmap.milestones)) throw new Error("Gemini returned an incomplete career roadmap. Please try again.")
+      let parsedRoadmap: unknown
+      try { parsedRoadmap = JSON.parse(result.data.content) } catch { parsedRoadmap = fallbackRoadmap }
+      const generatedRoadmap = normalizeRoadmap(parsedRoadmap)
       if (!supabase || !user) throw new Error("Your session is unavailable.")
       const [roadmapSave, activitySave] = await Promise.all([
         supabase.from("career_roadmaps").insert({ user_id: user.id, title: generatedRoadmap.title, roadmap: generatedRoadmap }),
@@ -76,7 +94,7 @@ export function CareerPage() {
       ])
       if (roadmapSave.error) throw new Error(roadmapSave.error.message)
       if (activitySave.error) throw new Error(activitySave.error.message)
-      setRoadmap(generatedRoadmap); setNotice(`Gemini ${result.source === "cache" ? "cached" : "generated"} roadmap saved to your workspace.`)
+      setRoadmap(generatedRoadmap); setNotice(`Groq ${result.source === "cache" ? "cached" : "generated"} roadmap saved to your workspace.`)
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not generate a career roadmap.") }
     finally { setLoading(false) }
   }
