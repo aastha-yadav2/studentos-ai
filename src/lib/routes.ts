@@ -1,8 +1,9 @@
-import { Bot, BookOpen, BrainCircuit, BriefcaseBusiness, CheckSquare, Gauge, Goal, Settings, Sparkles, UserRound, TrendingUp } from "lucide-react"
+import { Bot, BookOpen, BrainCircuit, BriefcaseBusiness, Compass, CheckSquare, Gauge, Goal, Settings, Sparkles, UserRound, TrendingUp } from "lucide-react"
 
 export const appRoutes = [
   { title: "Dashboard", href: "/app", icon: Gauge, description: "Your AI command center" },
   { title: "Planner", href: "/app/planner", icon: Sparkles, description: "Coordinate your agents" },
+  { title: "Opportunities", href: "/app/opportunities", icon: Compass, description: "Discover hackathons & internships" },
   { title: "Study", href: "/app/study", icon: BookOpen, description: "Plan exam preparation" },
   { title: "Career", href: "/app/career", icon: BriefcaseBusiness, description: "Build your placement roadmap" },
   { title: "Tasks", href: "/app/tasks", icon: CheckSquare, description: "Execute your priorities" },

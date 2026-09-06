@@ -1,7 +1,7 @@
 import type { Session } from "@supabase/supabase-js"
 import { supabaseUrl } from "@/lib/supabase"
 
-export type AIRequestType = "planner" | "resume_review" | "personalized_study_plan" | "career_advice" | "goal_recommendations" | "reflection_analysis" | "reflection_coaching" | "task_assistance" | "interview_preparation" | "essay_improvement" | "communication_draft"
+export type AIRequestType = "planner" | "resume_review" | "personalized_study_plan" | "career_advice" | "goal_recommendations" | "reflection_analysis" | "reflection_coaching" | "task_assistance" | "interview_preparation" | "essay_improvement" | "communication_draft" | "opportunity_match" | "opportunity_prep_plan"
 export type AIResult<T> = { data: T; source: "groq" | "cache"; fallback: false; trace?: string[] }
 
 /** The sole browser-to-AI boundary. Router/Groq failures are deliberately surfaced to the UI. */
