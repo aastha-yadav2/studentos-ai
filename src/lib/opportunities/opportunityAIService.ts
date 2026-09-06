@@ -2,6 +2,7 @@ import type { Session } from "@supabase/supabase-js"
 import { requestAI } from "@/lib/ai/router-client"
 import type { Opportunity, OpportunityMatch, OpportunityPrepPlanData } from "./opportunityTypes"
 import { saveOpportunityMatch, saveOpportunityPrepPlan } from "./opportunityService"
+import { calculateDeterministicMatch, type EligibilityStatus } from "./deterministicMatcher"
 
 export interface StudentContextPayload {
   skills?: string[]
@@ -15,13 +16,16 @@ interface RawAIMatchResponse {
   content: string
 }
 
-interface MatchJSON {
-  match_score: number
-  skill_match_score: number
-  goal_match_score: number
-  strengths: string[]
-  missing_skills: string[]
+interface MatchAIExplanationJSON {
+  strengths?: string[]
+  missing_skills?: string[]
   explanation: string
+}
+
+export interface ComprehensiveMatchResult extends OpportunityMatch {
+  eligibility_status: EligibilityStatus
+  eligibility_notes: string
+  eligibility_location_score: number
 }
 
 export async function computeOpportunityMatch(
@@ -29,7 +33,10 @@ export async function computeOpportunityMatch(
   userId: string,
   opportunity: Opportunity,
   studentContext: StudentContextPayload
-): Promise<OpportunityMatch | null> {
+): Promise<ComprehensiveMatchResult | null> {
+  // 1. COMPUTED DETERMINISTICALLY IN TYPESCRIPT (LLM CANNOT INFLUENCE THESE SCORES)
+  const deterministic = calculateDeterministicMatch(studentContext, opportunity)
+
   const payload = {
     opportunity: {
       title: opportunity.title,
@@ -39,57 +46,64 @@ export async function computeOpportunityMatch(
       description: opportunity.description,
       eligibility: opportunity.eligibility,
       required_skills: opportunity.required_skills,
-      stipend_prize: opportunity.stipend_prize,
     },
     student: {
       skills: studentContext.skills ?? [],
       career_goals: studentContext.careerGoals ?? [],
       semester: studentContext.semester ?? "Unspecified",
-      internship_interests: studentContext.internshipInterests ?? [],
-      hackathon_interests: studentContext.hackathonInterests ?? [],
+    },
+    deterministic_scores: {
+      match_score: deterministic.match_score,
+      skill_match_score: deterministic.skill_match_score,
+      goal_match_score: deterministic.goal_match_score,
+      eligibility_location_score: deterministic.eligibility_location_score,
+      matched_skills: deterministic.matched_skills,
+      missing_skills: deterministic.missing_skills,
     },
     instructions:
-      "Analyze the fit between the student and this opportunity. Calculate integer match scores between 0 and 100 for match_score, skill_match_score, and goal_match_score. List specific strengths, missing_skills, and a 2-3 sentence explanation. Return JSON: { match_score: number, skill_match_score: number, goal_match_score: number, strengths: string[], missing_skills: string[], explanation: string }",
+      "Review the student context and deterministic match scores provided. DO NOT generate numeric scores. Provide a 2-3 sentence qualitative explanation and list key strengths. Return JSON: { explanation: string, strengths: string[], missing_skills: string[] }",
   }
+
+  let qualitativeExplanation = `Deterministic match score of ${deterministic.match_score}% calculated based on Skill Fit (${deterministic.skill_match_score}%), Goal Alignment (${deterministic.goal_match_score}%), and Eligibility/Location (${deterministic.eligibility_location_score}%).`
+  let strengths = deterministic.matched_skills.length > 0 ? deterministic.matched_skills : ["Relevant technical background"]
+  let missingSkills = deterministic.missing_skills
 
   try {
     const result = await requestAI<RawAIMatchResponse>(session, "opportunity_match", payload)
-    const matchData: MatchJSON = JSON.parse(result.data.content)
-
-    const matchRecord = {
-      user_id: userId,
-      opportunity_id: opportunity.id,
-      match_score: Math.min(100, Math.max(0, matchData.match_score || 70)),
-      skill_match_score: Math.min(100, Math.max(0, matchData.skill_match_score || 65)),
-      goal_match_score: Math.min(100, Math.max(0, matchData.goal_match_score || 75)),
-      strengths: matchData.strengths || [],
-      missing_skills: matchData.missing_skills || [],
-      explanation: matchData.explanation || "Calculated based on your active skills and program requirements.",
+    const aiData: MatchAIExplanationJSON = JSON.parse(result.data.content)
+    if (aiData.explanation && aiData.explanation.trim()) {
+      qualitativeExplanation = aiData.explanation.trim()
     }
-
-    return await saveOpportunityMatch(matchRecord)
+    if (Array.isArray(aiData.strengths) && aiData.strengths.length > 0) {
+      strengths = aiData.strengths
+    }
+    if (Array.isArray(aiData.missing_skills)) {
+      missingSkills = aiData.missing_skills
+    }
   } catch (error) {
-    console.error("Failed to compute AI match score:", error)
+    console.warn("AI router qualitative explanation failed, falling back to deterministic explanation:", error)
+  }
 
-    // Fallback heuristic scoring if AI router is offline
-    const studentSkills = new Set((studentContext.skills ?? []).map((s) => s.toLowerCase()))
-    const requiredSkills = opportunity.required_skills.map((s) => s.toLowerCase())
-    const matched = requiredSkills.filter((s) => studentSkills.has(s))
-    const missing = requiredSkills.filter((s) => !studentSkills.has(s))
+  // 2. PERSIST THE EXACT DETERMINISTIC SCORES (LLM IS IGNORED FOR NUMERIC VALUES)
+  const matchRecord = {
+    user_id: userId,
+    opportunity_id: opportunity.id,
+    match_score: deterministic.match_score,
+    skill_match_score: deterministic.skill_match_score,
+    goal_match_score: deterministic.goal_match_score,
+    strengths,
+    missing_skills: missingSkills,
+    explanation: qualitativeExplanation,
+  }
 
-    const skillScore = requiredSkills.length > 0 ? Math.round((matched.length / requiredSkills.length) * 100) : 75
-    const fallbackMatch = {
-      user_id: userId,
-      opportunity_id: opportunity.id,
-      match_score: Math.max(50, skillScore),
-      skill_match_score: skillScore,
-      goal_match_score: 75,
-      strengths: matched.length > 0 ? matched : ["Relevant technical background"],
-      missing_skills: missing,
-      explanation: `Matched ${matched.length} of ${requiredSkills.length} required skills based on your profile.`,
-    }
+  const saved = await saveOpportunityMatch(matchRecord)
+  if (!saved) return null
 
-    return await saveOpportunityMatch(fallbackMatch)
+  return {
+    ...saved,
+    eligibility_status: deterministic.eligibility_status,
+    eligibility_notes: deterministic.eligibility_notes,
+    eligibility_location_score: deterministic.eligibility_location_score,
   }
 }
 

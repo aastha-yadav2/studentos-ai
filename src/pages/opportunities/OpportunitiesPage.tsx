@@ -523,7 +523,7 @@ export function OpportunitiesPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Zap className="size-5 text-amber-400" />
-                <h3 className="font-bold text-lg">AI Match Insights</h3>
+                <h3 className="font-bold text-lg">Deterministic Match Insights</h3>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setSelectedMatch(null)}>Close</Button>
             </div>
@@ -532,23 +532,27 @@ export function OpportunitiesPage() {
               <p className="text-xs text-muted-foreground">{selectedMatch.opportunity.organization}</p>
             </div>
 
+            {/* Score Gauges */}
             <div className="grid grid-cols-3 gap-3 text-center py-2">
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
                 <p className="text-2xl font-extrabold text-emerald-400">{selectedMatch.match.match_score}%</p>
-                <p className="text-[10px] text-muted-foreground uppercase font-semibold mt-1">Overall Fit</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-semibold mt-1">Final Fit</p>
               </div>
               <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
                 <p className="text-2xl font-extrabold text-cyan-400">{selectedMatch.match.skill_match_score}%</p>
-                <p className="text-[10px] text-muted-foreground uppercase font-semibold mt-1">Skill Match</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-semibold mt-1">Skill Fit (50%)</p>
               </div>
               <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3">
                 <p className="text-2xl font-extrabold text-purple-400">{selectedMatch.match.goal_match_score}%</p>
-                <p className="text-[10px] text-muted-foreground uppercase font-semibold mt-1">Goal Fit</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-semibold mt-1">Goal Fit (30%)</p>
               </div>
             </div>
 
             <div className="space-y-2 text-xs">
-              <p className="font-semibold">Match Rationale:</p>
+              <div className="flex items-center justify-between">
+                <p className="font-semibold">Match Rationale & Explanation:</p>
+                <Badge className="bg-primary/10 text-primary text-[10px]">Deterministic Formula (50/30/20)</Badge>
+              </div>
               <p className="text-muted-foreground bg-muted/40 p-3 rounded-xl leading-relaxed">{selectedMatch.match.explanation}</p>
             </div>
 
