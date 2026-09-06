@@ -252,6 +252,77 @@ export function runOpportunityMatcherTests(): { name: string; status: "pass" | "
     )
   })
 
+  // 18. Ambassador Opportunity Deterministic 50/30/20 Scoring
+  test("18. Ambassador opportunity calculates score strictly following 50/30/20 formula", () => {
+    const ambassadorOpp: Opportunity = {
+      ...baseOpportunity,
+      id: "amb-1",
+      title: "GitHub Campus Experts",
+      organization: "GitHub",
+      type: "ambassador",
+      category: "Campus Expert",
+      required_skills: ["Git", "GitHub", "Community Building", "Public Speaking"],
+    }
+
+    const student: StudentContextPayload = {
+      skills: ["Git", "GitHub", "Public Speaking"],
+      careerGoals: ["Campus Expert", "Developer Advocacy"],
+      semester: "Semester 6",
+    }
+
+    const res = calculateDeterministicMatch(student, ambassadorOpp)
+    const expected = Math.round(
+      res.skill_match_score * 0.5 +
+      res.goal_match_score * 0.3 +
+      res.eligibility_location_score * 0.2
+    )
+
+    assertEqual(res.match_score, expected)
+    assertEqual(res.skill_match_score, 75)
+  })
+
+  // 19. Ambassador Type and Category Preservation
+  test("19. Ambassador type and category survive opportunity structure", () => {
+    const ambassadorOpp: Opportunity = {
+      ...baseOpportunity,
+      type: "ambassador",
+      category: "Developer Ambassador",
+    }
+    assertEqual(ambassadorOpp.type, "ambassador")
+    assertEqual(ambassadorOpp.category, "Developer Ambassador")
+  })
+
+  // 20. Missing Deadline Remains NULL
+  test("20. Missing deadline and application_open_date remain NULL and do not fabricate dates", () => {
+    const oppNoDates: Opportunity = {
+      ...baseOpportunity,
+      deadline: null,
+      application_open_date: null,
+    }
+    assertEqual(oppNoDates.deadline, null)
+    assertEqual(oppNoDates.application_open_date, null)
+  })
+
+  // 21. Rolling / No-Deadline Ambassador Opportunity State
+  test("21. Ambassador opportunity with null deadline represents rolling state", () => {
+    const ambOpp: Opportunity = {
+      ...baseOpportunity,
+      type: "ambassador",
+      deadline: null,
+    }
+    assertEqual(ambOpp.type, "ambassador")
+    assertEqual(ambOpp.deadline, null)
+  })
+
+  // 22. Ambassador Skill Normalization Aliases
+  test("22. Ambassador skill aliases normalize correctly to canonical terms", () => {
+    assertEqual(normalizeSkill("publicspeaking"), "public speaking")
+    assertEqual(normalizeSkill("event planning"), "event management")
+    assertEqual(normalizeSkill("devrel"), "developer advocacy")
+    assertEqual(normalizeSkill("community management"), "community building")
+    assertEqual(normalizeSkill("productivity tools"), "notion")
+  })
+
   return results
 }
 

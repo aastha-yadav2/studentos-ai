@@ -69,6 +69,27 @@ const ALL_APPLICATION_STATUSES: { value: ApplicationStatus; label: string }[] = 
   { value: "deadline_passed", label: "Deadline Passed" },
 ]
 
+function formatApplicationWindow(opp: Opportunity): string {
+  if (opp.status === "expired" || opp.status === "archived") {
+    return "Closed"
+  }
+  if (opp.deadline) {
+    const d = new Date(opp.deadline)
+    if (d.getTime() < Date.now()) return "Closed"
+    return `Due ${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+  }
+  if (opp.application_open_date) {
+    const openDate = new Date(opp.application_open_date)
+    if (openDate.getTime() > Date.now()) {
+      return `Opens ${openDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+    }
+  }
+  if (opp.type === "ambassador") {
+    return "Rolling Applications"
+  }
+  return "No Deadline Published"
+}
+
 export function OpportunitiesPage() {
   const { user, session } = useAuth()
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
@@ -338,7 +359,6 @@ export function OpportunitiesPage() {
     }
   }
 
-
   async function handleConvertToStudentTask(taskTitle: string) {
     if (!user?.id) return
     const success = await createTaskFromOpportunityMilestone(user.id, taskTitle)
@@ -350,10 +370,14 @@ export function OpportunitiesPage() {
   // Filter & Sort Logic
   const filteredOpportunities = opportunities
     .filter((opp) => {
+      const query = searchQuery.toLowerCase().trim()
       const matchesSearch =
-        opp.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        opp.organization.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        opp.required_skills.some((s) => s.toLowerCase().includes(searchQuery.toLowerCase()))
+        !query ||
+        opp.title.toLowerCase().includes(query) ||
+        opp.organization.toLowerCase().includes(query) ||
+        opp.category.toLowerCase().includes(query) ||
+        opp.type.toLowerCase().includes(query) ||
+        opp.required_skills.some((s) => s.toLowerCase().includes(query))
       const matchesType = selectedType === "all" || opp.type === selectedType
       return matchesSearch && matchesType
     })
@@ -401,7 +425,7 @@ export function OpportunitiesPage() {
             <Badge className="border-primary/40 bg-primary/10 text-primary">Live Verified Catalog</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Curated hackathons, fellowships, internships, and competitions with 50/30/20 deterministic skill & goal fit scoring.
+            Curated hackathons, fellowships, internships, competitions, and ambassador programs with 50/30/20 fit scoring.
           </p>
         </div>
         <Button variant="secondary" size="sm" onClick={handleRefresh} className="w-fit">
@@ -506,14 +530,14 @@ export function OpportunitiesPage() {
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by title, organization, or skill..."
+                placeholder="Search by title, organization, category, or skill..."
                 className="pl-9"
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
                 <Filter className="size-3.5 text-muted-foreground shrink-0" />
-                {(["all", "hackathon", "fellowship", "competition", "internship", "job", "grant"] as const).map((type) => (
+                {(["all", "ambassador", "hackathon", "fellowship", "competition", "internship", "job", "grant"] as const).map((type) => (
                   <Button
                     key={type}
                     variant={selectedType === type ? "default" : "secondary"}
@@ -579,7 +603,8 @@ export function OpportunitiesPage() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <Badge className="bg-muted/80 text-foreground capitalize text-[11px] font-semibold">{opp.type}</Badge>
+                        <Badge className="bg-primary/10 text-primary capitalize text-[11px] font-semibold">{opp.type}</Badge>
+                        <Badge className="bg-muted/80 text-foreground text-[10px] font-medium">{opp.category}</Badge>
                         <Badge
                           className={`text-[10px] ${
                             opp.verification_state === "verified"
@@ -641,8 +666,8 @@ export function OpportunitiesPage() {
                   <div className="p-5 pt-0 space-y-2 border-t border-border/40 mt-4">
                     <div className="flex items-center justify-between text-xs text-muted-foreground pt-3">
                       <span>{opp.location}</span>
-                      <span className="text-[11px] italic">
-                        {opp.deadline ? `Due ${new Date(opp.deadline).toLocaleDateString()}` : "Deadline not specified"}
+                      <span className="text-[11px] italic font-medium text-foreground/80">
+                        {formatApplicationWindow(opp)}
                       </span>
                     </div>
 

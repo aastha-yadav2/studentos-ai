@@ -50,6 +50,37 @@ const SKILL_ALIASES: Record<string, string> = {
   firebase: "firebase",
   android: "android",
   tensorflow: "tensorflow",
+
+  // Ambassador & Community Skill Mappings
+  "public speaking": "public speaking",
+  publicspeaking: "public speaking",
+  presentation: "public speaking",
+
+  "event management": "event management",
+  "event planning": "event management",
+  "event organizing": "event management",
+  "workshop hosting": "event management",
+  "workshop facilitation": "event management",
+
+  "community building": "community building",
+  "community management": "community building",
+  "community leadership": "community building",
+
+  "developer advocacy": "developer advocacy",
+  devrel: "developer advocacy",
+  "developer relations": "developer advocacy",
+  "technical evangelism": "developer advocacy",
+
+  "content creation": "content creation",
+  "technical writing": "content creation",
+  blogging: "content creation",
+
+  "api testing": "api testing",
+  "rest apis": "api testing",
+  postman: "postman",
+
+  notion: "notion",
+  "productivity tools": "notion",
 }
 
 export function normalizeSkill(skill: string): string {

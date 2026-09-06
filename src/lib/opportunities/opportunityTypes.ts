@@ -1,4 +1,4 @@
-export type OpportunityType = 'hackathon' | 'internship' | 'job' | 'fellowship' | 'grant' | 'competition'
+export type OpportunityType = 'hackathon' | 'internship' | 'job' | 'fellowship' | 'grant' | 'competition' | 'ambassador'
 export type OpportunityStatus = 'active' | 'expired' | 'archived'
 export type VerificationState = 'verified' | 'pending' | 'deprecated'
 
@@ -28,6 +28,7 @@ export interface Opportunity {
   source_url: string
   source_platform: string
   deadline?: string | null
+  application_open_date?: string | null
   status: OpportunityStatus
   verification_state: VerificationState
   last_verified_at: string
