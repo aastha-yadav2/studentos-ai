@@ -224,6 +224,23 @@ insert into public.opportunities (
   'active',
   'verified',
   now()
+),
+(
+  'Outreachy Internships',
+  'Outreachy',
+  'internship',
+  'Open Source & Software Engineering',
+  'Paid 13-week remote internships providing open source mentorship for people subject to systemic bias and underrepresented in tech.',
+  array['18+ years old', 'Available 30 hours per week during internship cohort'],
+  array['Git', 'Python', 'JavaScript', 'Documentation', 'Linux'],
+  'Remote',
+  '$7,000 USD total stipend',
+  'https://www.outreachy.org',
+  'Outreachy',
+  null,
+  'active',
+  'verified',
+  now()
 )
 on conflict (source_platform, source_url) do update set
   title = excluded.title,
