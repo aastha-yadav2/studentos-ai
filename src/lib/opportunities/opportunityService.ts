@@ -153,3 +153,29 @@ export async function saveOpportunityPrepPlan(prepPlan: Omit<OpportunityPrepPlan
   }
   return data as OpportunityPrepPlan
 }
+
+export async function createTaskFromOpportunityMilestone(
+  userId: string,
+  title: string,
+  priority: "High" | "Medium" | "Low" = "High",
+  dueDaysOffset = 7
+): Promise<boolean> {
+  if (!supabase || !userId) return false
+  const dueAt = new Date()
+  dueAt.setDate(dueAt.getDate() + dueDaysOffset)
+
+  const { error } = await supabase.from("student_tasks").insert({
+    user_id: userId,
+    title: title.trim(),
+    due_at: dueAt.toISOString(),
+    priority,
+    estimated_hours: 2,
+    status: "todo",
+  })
+
+  if (error) {
+    console.error("Error converting opportunity milestone to task:", error)
+    return false
+  }
+  return true
+}

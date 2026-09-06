@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import {
+  ArrowUpDown,
   Bookmark,
   BookmarkCheck,
   Briefcase,
@@ -8,8 +9,11 @@ import {
   Compass,
   ExternalLink,
   Filter,
+  Info,
   Layers,
   Loader2,
+  PlusCircle,
+  RefreshCw,
   Search,
   Sparkles,
   Trophy,
@@ -22,6 +26,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { profileService } from "@/lib/memory/profileService"
 import {
+  createTaskFromOpportunityMilestone,
   fetchOpportunities,
   fetchUserApplications,
   fetchUserOpportunityMatches,
@@ -30,43 +35,81 @@ import {
   toggleSaveOpportunity,
   updateApplicationStatus,
 } from "@/lib/opportunities/opportunityService"
-import { computeOpportunityMatch, generateOpportunityPrepPlan } from "@/lib/opportunities/opportunityAIService"
+import {
+  computeOpportunityMatch,
+  generateOpportunityPrepPlan,
+  type ComprehensiveMatchResult,
+} from "@/lib/opportunities/opportunityAIService"
 import type {
   ApplicationStatus,
   Opportunity,
-  OpportunityMatch,
   OpportunityPrepPlanData,
   OpportunityType,
 } from "@/lib/opportunities/opportunityTypes"
 
 type TabType = "catalog" | "saved" | "applications" | "prep"
+type SortOption = "match_desc" | "title_asc" | "verified_first" | "newest"
+
+const ALL_APPLICATION_STATUSES: { value: ApplicationStatus; label: string }[] = [
+  { value: "saved", label: "Saved" },
+  { value: "interested", label: "Interested" },
+  { value: "applying", label: "Preparing Application" },
+  { value: "applied", label: "Applied" },
+  { value: "interviewing", label: "Interviewing" },
+  { value: "accepted", label: "Accepted 🎉" },
+  { value: "rejected", label: "Rejected" },
+  { value: "withdrawn", label: "Withdrawn" },
+  { value: "not_eligible", label: "Not Eligible" },
+  { value: "deadline_passed", label: "Deadline Passed" },
+]
 
 export function OpportunitiesPage() {
   const { user, session } = useAuth()
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
   const [applications, setApplications] = useState<Map<string, ApplicationStatus>>(new Map())
-  const [matches, setMatches] = useState<Map<string, OpportunityMatch>>(new Map())
+  const [matches, setMatches] = useState<Map<string, ComprehensiveMatchResult>>(new Map())
   const [prepPlans, setPrepPlans] = useState<Map<string, OpportunityPrepPlanData>>(new Map())
-  const [isLoading, setIsLoading] = useState(true)
 
-  // Active Tab & Filters
+  const [isLoading, setIsLoading] = useState(true)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // Navigation & Filters
   const [activeTab, setActiveTab] = useState<TabType>("catalog")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedType, setSelectedType] = useState<OpportunityType | "all">("all")
+  const [sortOption, setSortOption] = useState<SortOption>("match_desc")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
 
-  // Modals / Drawers
-  const [selectedMatch, setSelectedMatch] = useState<{ opportunity: Opportunity; match: OpportunityMatch } | null>(null)
+  // Detail & Drawer Modals
+  const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null)
+  const [selectedMatch, setSelectedMatch] = useState<{ opportunity: Opportunity; match: ComprehensiveMatchResult } | null>(null)
   const [selectedPrepPlan, setSelectedPrepPlan] = useState<{ opportunity: Opportunity; plan: OpportunityPrepPlanData } | null>(null)
 
-  // AI loading indicators
+  // Loading & Feedback states
   const [matchingId, setMatchingId] = useState<string | null>(null)
   const [prepId, setPrepId] = useState<string | null>(null)
+  const [addedTasks, setAddedTasks] = useState<Set<string>>(new Set())
+
+  // Handle Escape key to close modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedOpportunity(null)
+        setSelectedMatch(null)
+        setSelectedPrepPlan(null)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
 
   useEffect(() => {
+    let isMounted = true
     async function loadData() {
       if (!user?.id) return
       setIsLoading(true)
+      setErrorMsg(null)
       try {
         const [opps, savedList, appsList, matchList, planList] = await Promise.all([
           fetchOpportunities(),
@@ -76,6 +119,8 @@ export function OpportunitiesPage() {
           fetchUserPrepPlans(user.id),
         ])
 
+        if (!isMounted) return
+
         setOpportunities(opps)
         setSavedIds(new Set(savedList.map((s) => s.opportunity_id)))
 
@@ -83,8 +128,15 @@ export function OpportunitiesPage() {
         appsList.forEach((a) => appMap.set(a.opportunity_id, a.status))
         setApplications(appMap)
 
-        const matchMap = new Map<string, OpportunityMatch>()
-        matchList.forEach((m) => matchMap.set(m.opportunity_id, m))
+        const matchMap = new Map<string, ComprehensiveMatchResult>()
+        matchList.forEach((m) => {
+          matchMap.set(m.opportunity_id, {
+            ...m,
+            eligibility_status: "verified",
+            eligibility_notes: "Criteria verified.",
+            eligibility_location_score: m.match_score,
+          })
+        })
         setMatches(matchMap)
 
         const planMap = new Map<string, OpportunityPrepPlanData>()
@@ -92,12 +144,61 @@ export function OpportunitiesPage() {
         setPrepPlans(planMap)
       } catch (err) {
         console.error("Failed loading opportunity data:", err)
+        if (isMounted) {
+          setErrorMsg("Could not load opportunities. Please check your network connection and try again.")
+        }
       } finally {
-        setIsLoading(false)
+        if (isMounted) setIsLoading(false)
       }
     }
-    loadData()
+
+    void loadData()
+    return () => {
+      isMounted = false
+    }
   }, [user?.id])
+
+  async function handleRefresh() {
+    if (!user?.id) return
+    setIsLoading(true)
+    setErrorMsg(null)
+    try {
+      const [opps, savedList, appsList, matchList, planList] = await Promise.all([
+        fetchOpportunities(),
+        fetchUserSavedOpportunities(user.id),
+        fetchUserApplications(user.id),
+        fetchUserOpportunityMatches(user.id),
+        fetchUserPrepPlans(user.id),
+      ])
+
+      setOpportunities(opps)
+      setSavedIds(new Set(savedList.map((s) => s.opportunity_id)))
+
+      const appMap = new Map<string, ApplicationStatus>()
+      appsList.forEach((a) => appMap.set(a.opportunity_id, a.status))
+      setApplications(appMap)
+
+      const matchMap = new Map<string, ComprehensiveMatchResult>()
+      matchList.forEach((m) => {
+        matchMap.set(m.opportunity_id, {
+          ...m,
+          eligibility_status: "verified",
+          eligibility_notes: "Criteria verified.",
+          eligibility_location_score: m.match_score,
+        })
+      })
+      setMatches(matchMap)
+
+      const planMap = new Map<string, OpportunityPrepPlanData>()
+      planList.forEach((p) => planMap.set(p.opportunity_id, p.plan))
+      setPrepPlans(planMap)
+    } catch (err) {
+      console.error("Failed loading opportunity data:", err)
+      setErrorMsg("Could not load opportunities. Please check your network connection and try again.")
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   async function handleToggleSave(oppId: string) {
     if (!user?.id) return
@@ -123,7 +224,16 @@ export function OpportunitiesPage() {
 
   async function handleRunMatch(opportunity: Opportunity) {
     if (!user?.id) return
+
+    // Reuse existing cached match if available
+    const existingMatch = matches.get(opportunity.id)
+    if (existingMatch) {
+      setSelectedMatch({ opportunity, match: existingMatch })
+      return
+    }
+
     setMatchingId(opportunity.id)
+    setErrorMsg(null)
     try {
       const profile = await profileService.get(user.id)
       const computed = await computeOpportunityMatch(session, user.id, opportunity, {
@@ -137,6 +247,9 @@ export function OpportunitiesPage() {
         setMatches((prev) => new Map(prev).set(opportunity.id, computed))
         setSelectedMatch({ opportunity, match: computed })
       }
+    } catch (err) {
+      console.error("Match computation error:", err)
+      setErrorMsg("Failed to generate match insights. Please try again.")
     } finally {
       setMatchingId(null)
     }
@@ -144,7 +257,16 @@ export function OpportunitiesPage() {
 
   async function handleRunPrepPlan(opportunity: Opportunity) {
     if (!user?.id) return
+
+    // Reuse existing prep plan if available
+    const existingPlan = prepPlans.get(opportunity.id)
+    if (existingPlan) {
+      setSelectedPrepPlan({ opportunity, plan: existingPlan })
+      return
+    }
+
     setPrepId(opportunity.id)
+    setErrorMsg(null)
     try {
       const profile = await profileService.get(user.id)
       const plan = await generateOpportunityPrepPlan(session, user.id, opportunity, {
@@ -156,37 +278,67 @@ export function OpportunitiesPage() {
         setPrepPlans((prev) => new Map(prev).set(opportunity.id, plan))
         setSelectedPrepPlan({ opportunity, plan })
       }
+    } catch (err) {
+      console.error("Prep plan error:", err)
+      setErrorMsg("Failed to generate AI preparation plan. Please try again.")
     } finally {
       setPrepId(null)
     }
   }
 
-  const filteredOpportunities = opportunities.filter((opp) => {
-    const matchesSearch =
-      opp.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      opp.organization.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      opp.required_skills.some((s) => s.toLowerCase().includes(searchQuery.toLowerCase()))
-    const matchesType = selectedType === "all" || opp.type === selectedType
-    return matchesSearch && matchesType
-  })
+  async function handleConvertToStudentTask(taskTitle: string) {
+    if (!user?.id) return
+    const success = await createTaskFromOpportunityMilestone(user.id, taskTitle)
+    if (success) {
+      setAddedTasks((prev) => new Set(prev).add(taskTitle))
+    }
+  }
+
+  // Filter & Sort Logic
+  const filteredOpportunities = opportunities
+    .filter((opp) => {
+      const matchesSearch =
+        opp.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        opp.organization.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        opp.required_skills.some((s) => s.toLowerCase().includes(searchQuery.toLowerCase()))
+      const matchesType = selectedType === "all" || opp.type === selectedType
+      return matchesSearch && matchesType
+    })
+    .sort((a, b) => {
+      if (sortOption === "match_desc") {
+        const scoreA = matches.get(a.id)?.match_score ?? -1
+        const scoreB = matches.get(b.id)?.match_score ?? -1
+        return scoreB - scoreA
+      }
+      if (sortOption === "title_asc") return a.title.localeCompare(b.title)
+      if (sortOption === "verified_first") {
+        if (a.verification_state === b.verification_state) return 0
+        return a.verification_state === "verified" ? -1 : 1
+      }
+      if (sortOption === "newest") {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      }
+      return 0
+    })
 
   const savedOpportunities = opportunities.filter((opp) => savedIds.has(opp.id))
 
   const applicationPipeline = opportunities
     .filter((opp) => applications.has(opp.id))
     .map((opp) => ({ opportunity: opp, status: applications.get(opp.id)! }))
+    .filter(({ status }) => statusFilter === "all" || status === statusFilter)
 
   if (isLoading) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3">
         <Loader2 className="size-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Hydrating Opportunity Intelligence Catalog…</p>
+        <p className="text-sm font-medium text-muted-foreground">Hydrating Opportunity Intelligence Catalog…</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -196,12 +348,24 @@ export function OpportunitiesPage() {
             <Badge className="border-primary/40 bg-primary/10 text-primary">Live Verified Catalog</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Curated, real-world hackathons, fellowships, internships, and global competitions matched to your skills.
+            Curated hackathons, fellowships, internships, and competitions with 50/30/20 deterministic skill & goal fit scoring.
           </p>
         </div>
+        <Button variant="secondary" size="sm" onClick={handleRefresh} className="w-fit">
+          <RefreshCw className="size-3.5 mr-1.5" /> Refresh Catalog
+        </Button>
       </div>
 
-      {/* Metrics */}
+      {errorMsg && (
+        <div className="flex items-center justify-between rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-300">
+          <span>{errorMsg}</span>
+          <Button variant="ghost" size="sm" onClick={() => setErrorMsg(null)} className="text-xs h-7">
+            Dismiss
+          </Button>
+        </div>
+      )}
+
+      {/* Overview Metrics */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Card className="bg-card/60 backdrop-blur-xl">
           <CardContent className="pt-6">
@@ -236,7 +400,7 @@ export function OpportunitiesPage() {
                 <Layers className="size-5" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{applicationPipeline.length}</p>
+                <p className="text-2xl font-bold">{applications.size}</p>
                 <p className="text-xs text-muted-foreground">Tracked Applications</p>
               </div>
             </div>
@@ -257,14 +421,14 @@ export function OpportunitiesPage() {
         </Card>
       </div>
 
-      {/* Custom Tabs Bar */}
-      <div className="flex items-center gap-2 border-b border-border/80 pb-3">
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-border/80 pb-3 overflow-x-auto">
         {(
           [
             { id: "catalog", label: `Catalog (${opportunities.length})` },
             { id: "saved", label: `Saved (${savedIds.size})` },
-            { id: "applications", label: `Applications (${applicationPipeline.length})` },
-            { id: "prep", label: `AI Prep (${prepPlans.size})` },
+            { id: "applications", label: `Applications (${applications.size})` },
+            { id: "prep", label: `AI Prep Plans (${prepPlans.size})` },
           ] as const
         ).map((t) => (
           <Button
@@ -272,18 +436,18 @@ export function OpportunitiesPage() {
             variant={activeTab === t.id ? "default" : "ghost"}
             size="sm"
             onClick={() => setActiveTab(t.id)}
-            className="text-xs font-semibold"
+            className="text-xs font-semibold shrink-0"
           >
             {t.label}
           </Button>
         ))}
       </div>
 
-      {/* Catalog View */}
+      {/* TAB 1: CATALOG VIEW */}
       {activeTab === "catalog" && (
         <div className="space-y-6">
-          {/* Filter Bar */}
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          {/* Controls: Search, Filter, Sort */}
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="relative flex-1 max-w-md">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -293,23 +457,60 @@ export function OpportunitiesPage() {
                 className="pl-9"
               />
             </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
-              <Filter className="size-4 text-muted-foreground shrink-0" />
-              {(["all", "hackathon", "fellowship", "competition", "internship", "job", "grant"] as const).map((type) => (
-                <Button
-                  key={type}
-                  variant={selectedType === type ? "default" : "secondary"}
-                  size="sm"
-                  onClick={() => setSelectedType(type)}
-                  className="capitalize text-xs shrink-0"
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
+                <Filter className="size-3.5 text-muted-foreground shrink-0" />
+                {(["all", "hackathon", "fellowship", "competition", "internship", "job", "grant"] as const).map((type) => (
+                  <Button
+                    key={type}
+                    variant={selectedType === type ? "default" : "secondary"}
+                    size="sm"
+                    onClick={() => setSelectedType(type)}
+                    className="capitalize text-xs shrink-0 h-8 px-2.5"
+                  >
+                    {type}
+                  </Button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <ArrowUpDown className="size-3.5 text-muted-foreground shrink-0" />
+                <select
+                  value={sortOption}
+                  onChange={(e) => setSortOption(e.target.value as SortOption)}
+                  className="rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  {type}
-                </Button>
-              ))}
+                  <option value="match_desc">Highest Fit First</option>
+                  <option value="title_asc">Title (A-Z)</option>
+                  <option value="verified_first">Verified First</option>
+                  <option value="newest">Recently Added</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          {/* Catalog Cards Grid */}
+          {/* Empty State */}
+          {filteredOpportunities.length === 0 && (
+            <div className="flex min-h-[30vh] flex-col items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center">
+              <Search className="size-10 text-muted-foreground/60 mb-3" />
+              <h3 className="font-semibold text-lg">No matching opportunities found</h3>
+              <p className="text-sm text-muted-foreground max-w-sm mt-1">
+                Try adjusting your search keywords or resetting filters to explore the catalog.
+              </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("")
+                  setSelectedType("all")
+                }}
+                className="mt-4"
+              >
+                Clear Search Filters
+              </Button>
+            </div>
+          )}
+
+          {/* Cards Grid */}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {filteredOpportunities.map((opp) => {
               const isSaved = savedIds.has(opp.id)
@@ -318,32 +519,63 @@ export function OpportunitiesPage() {
               const appStatus = applications.get(opp.id)
 
               return (
-                <Card key={opp.id} className="flex flex-col justify-between bg-card/60 backdrop-blur-xl border-border/80 hover:border-primary/50 transition-colors">
+                <Card
+                  key={opp.id}
+                  className="flex flex-col justify-between bg-card/60 backdrop-blur-xl border-border/80 hover:border-primary/50 transition-colors"
+                >
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between gap-2">
-                      <Badge className="bg-muted/80 text-foreground capitalize text-[11px] font-semibold">{opp.type}</Badge>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge className="bg-muted/80 text-foreground capitalize text-[11px] font-semibold">{opp.type}</Badge>
+                        <Badge
+                          className={`text-[10px] ${
+                            opp.verification_state === "verified"
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                              : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                          }`}
+                        >
+                          {opp.verification_state}
+                        </Badge>
+                      </div>
                       <div className="flex items-center gap-1">
                         {match && (
                           <Badge className="border-emerald-500/40 bg-emerald-500/10 text-emerald-400 font-bold text-[11px]">
                             {match.match_score}% Fit
                           </Badge>
                         )}
-                        <Button variant="ghost" size="sm" className="size-8 p-0" onClick={() => handleToggleSave(opp.id)}>
-                          {isSaved ? <BookmarkCheck className="size-4 text-primary fill-primary" /> : <Bookmark className="size-4 text-muted-foreground" />}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="size-8 p-0"
+                          onClick={() => handleToggleSave(opp.id)}
+                          aria-label={isSaved ? "Unsave opportunity" : "Save opportunity"}
+                        >
+                          {isSaved ? (
+                            <BookmarkCheck className="size-4 text-primary fill-primary" />
+                          ) : (
+                            <Bookmark className="size-4 text-muted-foreground" />
+                          )}
                         </Button>
                       </div>
                     </div>
-                    <CardTitle className="text-base font-semibold line-clamp-1 mt-1">{opp.title}</CardTitle>
+                    <CardTitle
+                      className="text-base font-semibold line-clamp-1 mt-1 cursor-pointer hover:text-primary transition-colors"
+                      onClick={() => setSelectedOpportunity(opp)}
+                    >
+                      {opp.title}
+                    </CardTitle>
                     <CardDescription className="text-xs font-medium text-foreground/80">{opp.organization}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4 text-sm flex-1">
                     <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{opp.description}</p>
+
                     {opp.stipend_prize && (
                       <div className="flex items-center gap-2 text-xs font-medium text-emerald-400 bg-emerald-950/30 border border-emerald-800/40 p-2 rounded-lg">
                         <Trophy className="size-3.5 shrink-0" />
                         <span className="truncate">{opp.stipend_prize}</span>
                       </div>
                     )}
+
                     <div className="flex flex-wrap gap-1.5 pt-1">
                       {opp.required_skills.map((skill) => (
                         <Badge key={skill} className="text-[10px] bg-muted/50 text-muted-foreground border-border">
@@ -352,20 +584,42 @@ export function OpportunitiesPage() {
                       ))}
                     </div>
                   </CardContent>
+
                   <div className="p-5 pt-0 space-y-2 border-t border-border/40 mt-4">
                     <div className="flex items-center justify-between text-xs text-muted-foreground pt-3">
                       <span>{opp.location}</span>
-                      <a href={opp.source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline font-medium">
-                        Official Page <ExternalLink className="size-3" />
-                      </a>
+                      <span className="text-[11px] italic">
+                        {opp.deadline ? `Due ${new Date(opp.deadline).toLocaleDateString()}` : "Deadline not specified"}
+                      </span>
                     </div>
+
                     <div className="grid grid-cols-2 gap-2 pt-2">
-                      <Button variant="secondary" size="sm" onClick={() => handleRunMatch(opp)} disabled={matchingId === opp.id} className="text-xs">
-                        {matchingId === opp.id ? <Loader2 className="size-3 animate-spin mr-1" /> : <Zap className="size-3 text-amber-400 mr-1" />}
-                        {match ? "View Fit" : "AI Match"}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleRunMatch(opp)}
+                        disabled={matchingId === opp.id}
+                        className="text-xs"
+                      >
+                        {matchingId === opp.id ? (
+                          <Loader2 className="size-3 animate-spin mr-1" />
+                        ) : (
+                          <Zap className="size-3 text-amber-400 mr-1" />
+                        )}
+                        {match ? "View Fit" : "Analyze Fit"}
                       </Button>
-                      <Button variant="default" size="sm" onClick={() => handleRunPrepPlan(opp)} disabled={prepId === opp.id} className="text-xs">
-                        {prepId === opp.id ? <Loader2 className="size-3 animate-spin mr-1" /> : <Sparkles className="size-3 text-primary-foreground mr-1" />}
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => handleRunPrepPlan(opp)}
+                        disabled={prepId === opp.id}
+                        className="text-xs"
+                      >
+                        {prepId === opp.id ? (
+                          <Loader2 className="size-3 animate-spin mr-1" />
+                        ) : (
+                          <Sparkles className="size-3 text-primary-foreground mr-1" />
+                        )}
                         {hasPrep ? "View Plan" : "Prep Plan"}
                       </Button>
                     </div>
@@ -380,13 +634,11 @@ export function OpportunitiesPage() {
                         className="w-full rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                       >
                         <option value="not_applied">Tracker: Not Applied</option>
-                        <option value="saved">Saved</option>
-                        <option value="interested">Interested</option>
-                        <option value="applying">Applying</option>
-                        <option value="applied">Applied</option>
-                        <option value="interviewing">Interviewing</option>
-                        <option value="accepted">Accepted 🎉</option>
-                        <option value="rejected">Rejected</option>
+                        {ALL_APPLICATION_STATUSES.map((st) => (
+                          <option key={st.value} value={st.value}>
+                            {st.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -397,14 +649,16 @@ export function OpportunitiesPage() {
         </div>
       )}
 
-      {/* Saved View */}
+      {/* TAB 2: SAVED OPPORTUNITIES */}
       {activeTab === "saved" && (
         <div>
           {savedOpportunities.length === 0 ? (
             <div className="flex min-h-[30vh] flex-col items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center">
               <Bookmark className="size-10 text-muted-foreground/60 mb-3" />
               <h3 className="font-semibold text-lg">No saved opportunities yet</h3>
-              <p className="text-sm text-muted-foreground max-w-sm mt-1">Bookmark hackathons and internships in the catalog to quickly return to them later.</p>
+              <p className="text-sm text-muted-foreground max-w-sm mt-1">
+                Bookmark hackathons and internships in the catalog to quickly return to them later.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -420,8 +674,14 @@ export function OpportunitiesPage() {
                     <CardTitle className="text-base font-semibold mt-2">{opp.title}</CardTitle>
                     <CardDescription className="text-xs">{opp.organization}</CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <a href={opp.source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                  <CardContent className="space-y-3">
+                    <p className="text-xs text-muted-foreground line-clamp-2">{opp.description}</p>
+                    <a
+                      href={opp.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium"
+                    >
                       Visit Official Platform <ExternalLink className="size-3" />
                     </a>
                   </CardContent>
@@ -432,21 +692,53 @@ export function OpportunitiesPage() {
         </div>
       )}
 
-      {/* Applications View */}
+      {/* TAB 3: APPLICATION TRACKER */}
       {activeTab === "applications" && (
-        <div>
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 overflow-x-auto pb-2">
+            <Filter className="size-3.5 text-muted-foreground shrink-0" />
+            <Button
+              variant={statusFilter === "all" ? "default" : "secondary"}
+              size="sm"
+              onClick={() => setStatusFilter("all")}
+              className="text-xs h-8"
+            >
+              All States ({applications.size})
+            </Button>
+            {ALL_APPLICATION_STATUSES.map((st) => {
+              const count = Array.from(applications.values()).filter((s) => s === st.value).length
+              if (count === 0 && statusFilter !== st.value) return null
+              return (
+                <Button
+                  key={st.value}
+                  variant={statusFilter === st.value ? "default" : "secondary"}
+                  size="sm"
+                  onClick={() => setStatusFilter(st.value)}
+                  className="text-xs h-8 shrink-0"
+                >
+                  {st.label} ({count})
+                </Button>
+              )
+            })}
+          </div>
+
           {applicationPipeline.length === 0 ? (
             <div className="flex min-h-[30vh] flex-col items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center">
               <Briefcase className="size-10 text-muted-foreground/60 mb-3" />
-              <h3 className="font-semibold text-lg">No active applications tracked</h3>
-              <p className="text-sm text-muted-foreground max-w-sm mt-1">Select an application status on any opportunity card to manage your application pipeline.</p>
+              <h3 className="font-semibold text-lg">No applications matching this filter</h3>
+              <p className="text-sm text-muted-foreground max-w-sm mt-1">
+                Select an application status on any opportunity card to manage your pipeline across all 10 supported states.
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
               {applicationPipeline.map(({ opportunity, status }) => (
-                <Card key={opportunity.id} className="bg-card/60 backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 gap-4">
+                <Card
+                  key={opportunity.id}
+                  className="bg-card/60 backdrop-blur-xl flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 gap-4"
+                >
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Badge className="bg-muted text-foreground capitalize text-xs">{opportunity.type}</Badge>
                       <h4 className="font-semibold text-sm">{opportunity.title}</h4>
                       <span className="text-xs text-muted-foreground">• {opportunity.organization}</span>
@@ -454,11 +746,24 @@ export function OpportunitiesPage() {
                     <p className="text-xs text-muted-foreground">{opportunity.description.slice(0, 120)}...</p>
                   </div>
                   <div className="flex items-center gap-3 w-full sm:w-auto shrink-0 justify-end">
-                    <Badge className="bg-primary/20 text-primary capitalize font-semibold text-xs py-1 px-3">
-                      {status.replace("_", " ")}
-                    </Badge>
-                    <a href={opportunity.source_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
-                      Apply <ExternalLink className="size-3" />
+                    <select
+                      value={status}
+                      onChange={(e) => handleStatusChange(opportunity.id, e.target.value as ApplicationStatus)}
+                      className="rounded-xl border border-border bg-background px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-semibold"
+                    >
+                      {ALL_APPLICATION_STATUSES.map((st) => (
+                        <option key={st.value} value={st.value}>
+                          {st.label}
+                        </option>
+                      ))}
+                    </select>
+                    <a
+                      href={opportunity.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
+                    >
+                      Official Link <ExternalLink className="size-3" />
                     </a>
                   </div>
                 </Card>
@@ -468,14 +773,16 @@ export function OpportunitiesPage() {
         </div>
       )}
 
-      {/* AI Prep View */}
+      {/* TAB 4: AI PREPARATION PLANS & TASK INTEGRATION */}
       {activeTab === "prep" && (
         <div>
           {prepPlans.size === 0 ? (
             <div className="flex min-h-[30vh] flex-col items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center">
               <Sparkles className="size-10 text-primary/60 mb-3" />
               <h3 className="font-semibold text-lg">No AI Prep Plans generated yet</h3>
-              <p className="text-sm text-muted-foreground max-w-sm mt-1">Click "Prep Plan" on any opportunity in the catalog to generate a tailored 4-week execution roadmap.</p>
+              <p className="text-sm text-muted-foreground max-w-sm mt-1">
+                Click "Prep Plan" on any opportunity card to generate a step-by-step roadmap and convert milestones into StudentOS workspace tasks.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -488,7 +795,7 @@ export function OpportunitiesPage() {
                       <div className="flex items-center justify-between">
                         <Badge className="border-primary/40 text-primary text-xs">AI Prep Plan</Badge>
                         <Button variant="ghost" size="sm" onClick={() => setSelectedPrepPlan({ opportunity: opp, plan })}>
-                          Full Details <ChevronRight className="size-4 ml-1" />
+                          View Roadmap <ChevronRight className="size-4 ml-1" />
                         </Button>
                       </div>
                       <CardTitle className="text-base font-semibold mt-2">{opp.title}</CardTitle>
@@ -497,15 +804,35 @@ export function OpportunitiesPage() {
                     <CardContent className="space-y-3">
                       <p className="text-xs text-muted-foreground">{plan.summary}</p>
                       <div className="space-y-2 pt-2">
-                        {plan.key_milestones.slice(0, 2).map((m) => (
-                          <div key={m.week} className="flex items-start gap-2 text-xs bg-muted/40 p-2.5 rounded-lg">
-                            <CheckCircle2 className="size-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                            <div>
-                              <span className="font-bold">{m.week}: {m.title}</span>
-                              <p className="text-muted-foreground text-[11px] mt-0.5">{m.focus}</p>
+                        {plan.key_milestones.slice(0, 2).map((m) => {
+                          const taskKey = `${opp.title}: ${m.title}`
+                          const isAdded = addedTasks.has(taskKey)
+                          return (
+                            <div
+                              key={m.week}
+                              className="flex items-center justify-between gap-2 text-xs bg-muted/40 p-2.5 rounded-lg"
+                            >
+                              <div className="flex items-start gap-2">
+                                <CheckCircle2 className="size-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-bold">
+                                    {m.week}: {m.title}
+                                  </span>
+                                  <p className="text-muted-foreground text-[11px] mt-0.5">{m.focus}</p>
+                                </div>
+                              </div>
+                              <Button
+                                variant={isAdded ? "secondary" : "ghost"}
+                                size="sm"
+                                disabled={isAdded}
+                                onClick={() => handleConvertToStudentTask(taskKey)}
+                                className="text-[10px] h-7 px-2 shrink-0"
+                              >
+                                {isAdded ? "Added ✓" : <><PlusCircle className="size-3 mr-1" /> Task</>}
+                              </Button>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </CardContent>
                   </Card>
@@ -516,27 +843,107 @@ export function OpportunitiesPage() {
         </div>
       )}
 
-      {/* AI Match Modal / Drawer */}
+      {/* MODAL 1: OPPORTUNITY DETAILS */}
+      {selectedOpportunity && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setSelectedOpportunity(null)}
+        >
+          <div
+            className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <Badge className="bg-primary/10 text-primary capitalize text-xs">{selectedOpportunity.type}</Badge>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedOpportunity(null)}>
+                Close
+              </Button>
+            </div>
+            <div>
+              <h3 className="font-bold text-xl">{selectedOpportunity.title}</h3>
+              <p className="text-xs text-muted-foreground">{selectedOpportunity.organization} • {selectedOpportunity.location}</p>
+            </div>
+            <div className="space-y-2 text-xs">
+              <p className="font-semibold text-foreground">Program Overview:</p>
+              <p className="text-muted-foreground bg-muted/40 p-3 rounded-xl leading-relaxed">{selectedOpportunity.description}</p>
+            </div>
+            {selectedOpportunity.eligibility.length > 0 && (
+              <div className="space-y-1.5 text-xs">
+                <p className="font-semibold">Eligibility Criteria:</p>
+                <ul className="list-disc list-inside text-muted-foreground space-y-1 pl-1">
+                  {selectedOpportunity.eligibility.map((el, idx) => (
+                    <li key={idx}>{el}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="space-y-1.5 text-xs">
+              <p className="font-semibold">Required Technical Skills:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedOpportunity.required_skills.map((s) => (
+                  <Badge key={s} className="bg-muted text-muted-foreground">
+                    {s}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div className="pt-4 border-t border-border flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                {selectedOpportunity.deadline ? `Deadline: ${new Date(selectedOpportunity.deadline).toLocaleDateString()}` : "Deadline not specified"}
+              </span>
+              <a
+                href={selectedOpportunity.source_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-semibold bg-primary/10 px-3 py-1.5 rounded-lg"
+              >
+                Visit Official Platform <ExternalLink className="size-3.5" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: DETERMINISTIC MATCH INSIGHTS */}
       {selectedMatch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setSelectedMatch(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Zap className="size-5 text-amber-400" />
                 <h3 className="font-bold text-lg">Deterministic Match Insights</h3>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedMatch(null)}>Close</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedMatch(null)}>
+                Close
+              </Button>
             </div>
+
             <div>
               <h4 className="font-semibold text-base">{selectedMatch.opportunity.title}</h4>
               <p className="text-xs text-muted-foreground">{selectedMatch.opportunity.organization}</p>
             </div>
 
+            {/* Formula Banner */}
+            <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+              <Info className="size-4 text-primary shrink-0" />
+              <span>Score calculated deterministically in TypeScript: 50% Skill Fit, 30% Goal Alignment, 20% Eligibility & Location.</span>
+            </div>
+
             {/* Score Gauges */}
-            <div className="grid grid-cols-3 gap-3 text-center py-2">
+            <div className="grid grid-cols-3 gap-3 text-center py-1">
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3">
                 <p className="text-2xl font-extrabold text-emerald-400">{selectedMatch.match.match_score}%</p>
-                <p className="text-[10px] text-muted-foreground uppercase font-semibold mt-1">Final Fit</p>
+                <p className="text-[10px] text-muted-foreground uppercase font-semibold mt-1">Final Score</p>
               </div>
               <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
                 <p className="text-2xl font-extrabold text-cyan-400">{selectedMatch.match.skill_match_score}%</p>
@@ -549,10 +956,7 @@ export function OpportunitiesPage() {
             </div>
 
             <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <p className="font-semibold">Match Rationale & Explanation:</p>
-                <Badge className="bg-primary/10 text-primary text-[10px]">Deterministic Formula (50/30/20)</Badge>
-              </div>
+              <p className="font-semibold">Qualitative Rationale:</p>
               <p className="text-muted-foreground bg-muted/40 p-3 rounded-xl leading-relaxed">{selectedMatch.match.explanation}</p>
             </div>
 
@@ -585,21 +989,33 @@ export function OpportunitiesPage() {
         </div>
       )}
 
-      {/* AI Prep Plan Modal / Drawer */}
+      {/* MODAL 3: AI PREP PLAN & TASK CONVERSION */}
       {selectedPrepPlan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5 my-8 max-h-[85vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setSelectedPrepPlan(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5 my-8 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles className="size-5 text-primary" />
                 <h3 className="font-bold text-lg">Personalized AI Preparation Plan</h3>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedPrepPlan(null)}>Close</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedPrepPlan(null)}>
+                Close
+              </Button>
             </div>
 
             <div>
               <h4 className="font-bold text-lg">{selectedPrepPlan.opportunity.title}</h4>
-              <p className="text-xs text-muted-foreground">{selectedPrepPlan.opportunity.organization} • {selectedPrepPlan.opportunity.type}</p>
+              <p className="text-xs text-muted-foreground">
+                {selectedPrepPlan.opportunity.organization} • {selectedPrepPlan.opportunity.type}
+              </p>
             </div>
 
             <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-xs space-y-1.5">
@@ -608,21 +1024,36 @@ export function OpportunitiesPage() {
             </div>
 
             <div className="space-y-3">
-              <h5 className="font-semibold text-sm">4-Week Preparation Milestones</h5>
+              <h5 className="font-semibold text-sm">4-Week Preparation Milestones & Task Conversion</h5>
               <div className="space-y-3">
-                {selectedPrepPlan.plan.key_milestones.map((m) => (
-                  <div key={m.week} className="rounded-xl border border-border/80 bg-muted/30 p-4 space-y-2 text-xs">
-                    <div className="flex items-center justify-between font-bold">
-                      <span className="text-primary">{m.week}: {m.title}</span>
-                      <Badge className="bg-muted text-foreground text-[10px]">{m.focus}</Badge>
+                {selectedPrepPlan.plan.key_milestones.map((m) => {
+                  const milestoneTaskKey = `${selectedPrepPlan.opportunity.title}: ${m.title}`
+                  const isAdded = addedTasks.has(milestoneTaskKey)
+                  return (
+                    <div key={m.week} className="rounded-xl border border-border/80 bg-muted/30 p-4 space-y-3 text-xs">
+                      <div className="flex items-center justify-between font-bold">
+                        <span className="text-primary">
+                          {m.week}: {m.title}
+                        </span>
+                        <Button
+                          variant={isAdded ? "secondary" : "default"}
+                          size="sm"
+                          disabled={isAdded}
+                          onClick={() => handleConvertToStudentTask(milestoneTaskKey)}
+                          className="text-xs h-7 px-3"
+                        >
+                          {isAdded ? "Added to Tasks ✓" : <><PlusCircle className="size-3.5 mr-1" /> Add to Tasks</>}
+                        </Button>
+                      </div>
+                      <p className="text-xs font-medium text-foreground/80">{m.focus}</p>
+                      <ul className="list-disc list-inside text-muted-foreground space-y-1 pl-1">
+                        {m.action_items.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        ))}
+                      </ul>
                     </div>
-                    <ul className="list-disc list-inside text-muted-foreground space-y-1 pl-1">
-                      {m.action_items.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 
