@@ -16,6 +16,8 @@ import {
 } from "./ingestion/ingestionEngine"
 import { deduplicateOpportunities } from "./ingestion/deduplicator"
 import { evaluateStudentEligibility } from "./ingestion/eligibilityExtractor"
+import { detectOpportunityChanges } from "./freshness/changeDetector"
+import { verifyOpportunityFreshness, runCatalogFreshnessAudit } from "./freshness/freshnessEngine"
 
 const baseOpportunity: Opportunity = {
   id: "opp-123",
@@ -404,6 +406,76 @@ export function runOpportunityMatcherTests(): { name: string; status: "pass" | "
     assertOk(platforms.has("hack2skill"))
     assertOk(platforms.has("smart india hackathon"))
     assertOk(platforms.has("hackhazard"))
+  })
+
+  // 27. Deadline Change Detection
+  test("27. detectOpportunityChanges accurately detects deadline updates and outputs deadline_changed event", () => {
+    const oldOpp: Opportunity = { ...baseOpportunity, deadline: "2026-09-01T00:00:00Z" }
+    const freshOpp: Opportunity = { ...baseOpportunity, deadline: "2026-10-15T00:00:00Z" }
+
+    const changes = detectOpportunityChanges(oldOpp, freshOpp)
+    assertEqual(changes.length, 1)
+    assertEqual(changes[0].change_type, "deadline_changed")
+    assertEqual(changes[0].field_changed, "deadline")
+    assertEqual(changes[0].old_value, "2026-09-01T00:00:00Z")
+    assertEqual(changes[0].new_value, "2026-10-15T00:00:00Z")
+  })
+
+  // 28. Status Change & Registration State Detection
+  test("28. detectOpportunityChanges identifies status transitions (active -> expired) and registration_closed", () => {
+    const activeOpp: Opportunity = { ...baseOpportunity, status: "active" }
+    const expiredOpp: Opportunity = { ...baseOpportunity, status: "expired" }
+
+    const changes = detectOpportunityChanges(activeOpp, expiredOpp)
+    assertEqual(changes.length, 1)
+    assertEqual(changes[0].change_type, "registration_closed")
+    assertEqual(changes[0].old_value, "active")
+    assertEqual(changes[0].new_value, "expired")
+  })
+
+  // 29. Eligibility & Required Skills Diff Detection
+  test("29. detectOpportunityChanges detects updates to eligibility array and required skills array", () => {
+    const oldOpp: Opportunity = {
+      ...baseOpportunity,
+      eligibility: ["College student"],
+      required_skills: ["Python"],
+    }
+    const freshOpp: Opportunity = {
+      ...baseOpportunity,
+      eligibility: ["College student", "18+ years old"],
+      required_skills: ["Python", "Docker"],
+    }
+
+    const changes = detectOpportunityChanges(oldOpp, freshOpp)
+    assertEqual(changes.length, 2)
+    assertOk(changes.some((c) => c.change_type === "eligibility_changed"))
+    assertOk(changes.some((c) => c.change_type === "required_skills_changed"))
+  })
+
+  // 30. Freshness Engine Timestamp Updates
+  test("30. verifyOpportunityFreshness updates last_verified_at timestamp while preserving canonical fields", () => {
+    const oldOpp: Opportunity = { ...baseOpportunity, last_verified_at: "2026-01-01T00:00:00Z" }
+    const result = verifyOpportunityFreshness(oldOpp, baseOpportunity)
+
+    assertOk(result.last_verified_at > oldOpp.last_verified_at)
+    assertEqual(result.updated_opportunity.title, baseOpportunity.title)
+  })
+
+  // 31. Catalog Audit & New Opportunity Discovery Event
+  test("31. runCatalogFreshnessAudit detects new opportunities and generates new_opportunity_discovered events", () => {
+    const existingCatalog: Opportunity[] = [baseOpportunity]
+    const freshDiscovered: Opportunity = {
+      ...baseOpportunity,
+      id: "opp-new-devpost-1",
+      title: "New AI Challenge 2026",
+      source_url: "https://devpost.com/challenges/new-ai-2026",
+      source_platform: "Devpost",
+    }
+
+    const { updatedCatalog, auditReport } = runCatalogFreshnessAudit(existingCatalog, [baseOpportunity, freshDiscovered])
+    assertEqual(auditReport.total_new_discovered, 1)
+    assertOk(auditReport.events_generated.some((e) => e.change_type === "new_opportunity_discovered"))
+    assertEqual(updatedCatalog.length, 2)
   })
 
   return results

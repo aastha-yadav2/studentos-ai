@@ -519,3 +519,18 @@ export async function createTaskFromOpportunityMilestone(
   return true
 }
 
+export async function fetchOpportunityChangeEvents(opportunityId?: string): Promise<import("./freshness/types").OpportunityChangeEvent[]> {
+  if (!supabase) return []
+  let query = supabase.from("opportunity_change_events").select("*").order("detected_at", { ascending: false })
+  if (opportunityId) {
+    query = query.eq("opportunity_id", opportunityId)
+  }
+  const { data, error } = await query
+  if (error) {
+    console.error("Error fetching opportunity change events:", error)
+    return []
+  }
+  return data as import("./freshness/types").OpportunityChangeEvent[]
+}
+
+
