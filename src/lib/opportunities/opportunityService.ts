@@ -7,6 +7,8 @@ import type {
   OpportunityPrepPlan,
   ApplicationStatus,
 } from "./opportunityTypes"
+import { runMultiSourceIngestionPipeline } from "./ingestion/ingestionEngine"
+import { deduplicateOpportunities } from "./ingestion/deduplicator"
 
 export const VERIFIED_FALLBACK_OPPORTUNITIES: Opportunity[] = [
   {
@@ -306,7 +308,10 @@ export const VERIFIED_FALLBACK_OPPORTUNITIES: Opportunity[] = [
 ]
 
 export async function fetchOpportunities(): Promise<Opportunity[]> {
-  if (!supabase) return VERIFIED_FALLBACK_OPPORTUNITIES
+  const ingestedHackathons = runMultiSourceIngestionPipeline()
+  const combinedFallback = deduplicateOpportunities([...VERIFIED_FALLBACK_OPPORTUNITIES, ...ingestedHackathons])
+
+  if (!supabase) return combinedFallback
   try {
     const { data, error } = await supabase
       .from("opportunities")
@@ -316,20 +321,15 @@ export async function fetchOpportunities(): Promise<Opportunity[]> {
 
     if (error || !data || data.length === 0) {
       console.warn("Using verified fallback catalog (Supabase table unpopulated or offline):", error)
-      return VERIFIED_FALLBACK_OPPORTUNITIES
+      return combinedFallback
     }
 
-    // Merge fallback ambassador programs if database has not yet executed 20260718060000 migration
-    const hasAmbassadors = data.some((o) => o.type === "ambassador")
-    if (!hasAmbassadors) {
-      const fallbackAmbassadors = VERIFIED_FALLBACK_OPPORTUNITIES.filter((o) => o.type === "ambassador")
-      return [...(data as Opportunity[]), ...fallbackAmbassadors]
-    }
-
-    return data as Opportunity[]
+    // Merge fallback ambassador & multi-source hackathons if remote DB is partially migrated
+    const merged = deduplicateOpportunities([...(data as Opportunity[]), ...combinedFallback])
+    return merged
   } catch (err) {
     console.error("Error fetching opportunities, using verified fallback catalog:", err)
-    return VERIFIED_FALLBACK_OPPORTUNITIES
+    return combinedFallback
   }
 }
 

@@ -9,6 +9,13 @@ import {
 } from "./deterministicMatcher"
 import type { Opportunity } from "./opportunityTypes"
 import type { StudentContextPayload } from "./opportunityAIService"
+import {
+  discoverPlatformCapability,
+  ingestFromPlatform,
+  runMultiSourceIngestionPipeline,
+} from "./ingestion/ingestionEngine"
+import { deduplicateOpportunities } from "./ingestion/deduplicator"
+import { evaluateStudentEligibility } from "./ingestion/eligibilityExtractor"
 
 const baseOpportunity: Opportunity = {
   id: "opp-123",
@@ -321,6 +328,82 @@ export function runOpportunityMatcherTests(): { name: string; status: "pass" | "
     assertEqual(normalizeSkill("devrel"), "developer advocacy")
     assertEqual(normalizeSkill("community management"), "community building")
     assertEqual(normalizeSkill("productivity tools"), "notion")
+  })
+
+  // 23. Multi-Source Adapter Ingestion & Capability Discovery
+  test("23. Multi-source adapters discover capabilities and ingest valid hackathons", () => {
+    assertEqual(discoverPlatformCapability("devpost"), "structured_public_data")
+    assertEqual(discoverPlatformCapability("devfolio"), "structured_public_data")
+    assertEqual(discoverPlatformCapability("unstop"), "structured_public_data")
+    assertEqual(discoverPlatformCapability("sih"), "official_public_page")
+
+    const devpostResult = ingestFromPlatform("devpost")
+    assertEqual(devpostResult.platform, "devpost")
+    assertOk(devpostResult.opportunities.length > 0)
+    assertEqual(devpostResult.opportunities[0].source_platform, "Devpost")
+  })
+
+  // 24. Cross-Platform Hackathon Deduplication
+  test("24. Deduplicator removes exact URL duplicates and cross-platform fuzzy duplicates", () => {
+    const oppA: Opportunity = {
+      ...baseOpportunity,
+      id: "h1",
+      title: "Global AI Hackathon 2026",
+      organization: "Devpost Community",
+      source_url: "https://devpost.com/hackathons",
+      source_platform: "Devpost",
+    }
+    const oppB: Opportunity = {
+      ...baseOpportunity,
+      id: "h2",
+      title: "Global AI Hackathon 2026",
+      organization: "Devpost Community",
+      source_url: "https://devpost.com/hackathons",
+      source_platform: "Devpost",
+    }
+    const oppC: Opportunity = {
+      ...baseOpportunity,
+      id: "h3",
+      title: "ETHIndia Hackathon 2026",
+      organization: "Devfolio",
+      source_url: "https://devfolio.co/hackathons",
+      source_platform: "Devfolio",
+    }
+
+    const deduped = deduplicateOpportunities([oppA, oppB, oppC])
+    assertEqual(deduped.length, 2)
+  })
+
+  // 25. Eligibility Extraction & Filtering
+  test("25. Eligibility extractor correctly identifies mandatory GDSC rules and general student criteria", () => {
+    const gdscOpp: Opportunity = {
+      ...baseOpportunity,
+      eligibility: ["Member of a Google Developer Student Club at a university"],
+    }
+    const studentNoGDSC: StudentContextPayload = { skills: ["Python"] }
+    const studentWithGDSC: StudentContextPayload = { skills: ["GDSC", "Python"] }
+
+    const res1 = evaluateStudentEligibility(studentNoGDSC, gdscOpp)
+    assertEqual(res1.isEligible, false)
+    assertEqual(res1.status, "not_eligible")
+
+    const res2 = evaluateStudentEligibility(studentWithGDSC, gdscOpp)
+    assertEqual(res2.isEligible, true)
+    assertEqual(res2.status, "verified")
+  })
+
+  // 26. End-to-End Hackathon Ingestion Pipeline Run
+  test("26. Multi-source pipeline ingests and deduplicates hackathons across all 7 supported platforms", () => {
+    const ingested = runMultiSourceIngestionPipeline()
+    assertOk(ingested.length >= 7, `Expected at least 7 hackathons ingested, got ${ingested.length}`)
+    const platforms = new Set(ingested.map((o) => o.source_platform.toLowerCase()))
+    assertOk(platforms.has("devpost"))
+    assertOk(platforms.has("devfolio"))
+    assertOk(platforms.has("unstop"))
+    assertOk(platforms.has("hackerearth"))
+    assertOk(platforms.has("hack2skill"))
+    assertOk(platforms.has("smart india hackathon"))
+    assertOk(platforms.has("hackhazard"))
   })
 
   return results
