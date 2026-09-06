@@ -3,7 +3,17 @@ import type { Session, User } from "@supabase/supabase-js"
 import { supabase, supabaseConfigError } from "@/lib/supabase"
 
 type Credentials = { email: string; password: string }
-type AuthContextValue = { session: Session | null; user: User | null; loading: boolean; configurationError: string | null; signIn: (credentials: Credentials) => Promise<{ error: string | null }>; signUp: (credentials: Credentials) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>; signInWithGoogle: () => Promise<{ error: string | null }>; signOut: () => Promise<{ error: string | null }> }
+type AuthContextValue = {
+  session: Session | null
+  user: User | null
+  loading: boolean
+  configurationError: string | null
+  signIn: (credentials: Credentials) => Promise<{ error: string | null }>
+  signUp: (credentials: Credentials) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>
+  signInWithGoogle: () => Promise<{ error: string | null }>
+  resetPassword: (email: string) => Promise<{ error: string | null }>
+  signOut: () => Promise<{ error: string | null }>
+}
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -29,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async signIn(credentials) { if (!supabase) return { error: supabaseConfigError }; const { error } = await supabase.auth.signInWithPassword(credentials); return { error: error?.message ?? null } },
     async signUp({ email, password }) { if (!supabase) return { error: supabaseConfigError, needsEmailConfirmation: false }; const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}/auth` } }); return { error: error?.message ?? null, needsEmailConfirmation: !data.session && !error } },
     async signInWithGoogle() { if (!supabase) return { error: supabaseConfigError }; const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/app` } }); return { error: error?.message ?? null } },
+    async resetPassword(email) { if (!supabase) return { error: supabaseConfigError }; const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth` }); return { error: error?.message ?? null } },
     async signOut() { if (!supabase) return { error: supabaseConfigError }; const { error } = await supabase.auth.signOut(); return { error: error?.message ?? null } },
   }), [loading, session])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
