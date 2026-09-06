@@ -3,6 +3,9 @@ import {
   calculateDeterministicMatch,
   calculateGoalMatch,
   calculateEligibilityAndLocation,
+  computeStudentProfileFingerprint,
+  isMatchStale,
+  isPrepPlanStale,
 } from "./deterministicMatcher"
 import type { Opportunity } from "./opportunityTypes"
 import type { StudentContextPayload } from "./opportunityAIService"
@@ -192,6 +195,63 @@ export function runOpportunityMatcherTests(): { name: string; status: "pass" | "
     assertEqual(res.match_score, expected)
   })
 
+  // 15. Profile Fingerprint Consistency
+  test("15. Profile fingerprint uniquely changes when student skills or goals update", () => {
+    const studentA: StudentContextPayload = {
+      skills: ["Python", "Git"],
+      careerGoals: ["Open Source"],
+      semester: "Semester 6",
+    }
+    const studentB: StudentContextPayload = {
+      skills: ["Python", "Git", "C++"],
+      careerGoals: ["Open Source"],
+      semester: "Semester 6",
+    }
+
+    const matchA = calculateDeterministicMatch(studentA, baseOpportunity)
+    const matchB = calculateDeterministicMatch(studentB, baseOpportunity)
+
+    assertOk(matchA.fingerprint !== matchB.fingerprint, "Fingerprints must differ when skills differ")
+  })
+
+  // 16. Match Cache Invalidation Check
+  test("16. isMatchStale detects stale match cache after student profile updates", () => {
+    const studentOriginal: StudentContextPayload = {
+      skills: ["Python"],
+      careerGoals: ["Backend"],
+    }
+    const studentUpdated: StudentContextPayload = {
+      skills: ["Python", "Git", "C++"],
+      careerGoals: ["Open Source"],
+    }
+
+    const cachedMatch = {
+      match_score: 33,
+      skill_match_score: 33,
+      goal_match_score: 30,
+      explanation: `Initial match explanation.\n\n[fp:${calculateDeterministicMatch(studentOriginal, baseOpportunity).fingerprint}]`,
+    }
+
+    assertOk(
+      isMatchStale(cachedMatch, studentUpdated, baseOpportunity),
+      "isMatchStale must return true when student profile context changed"
+    )
+  })
+
+  // 17. Prep Plan Cache Invalidation Check
+  test("17. isPrepPlanStale invalidates plan when student fingerprint changes", () => {
+    const studentOriginal: StudentContextPayload = { skills: ["Python"] }
+    const studentUpdated: StudentContextPayload = { skills: ["Python", "C++"] }
+
+    const fpOriginal = computeStudentProfileFingerprint(studentOriginal)
+    const planData = { student_fingerprint: fpOriginal }
+
+    assertOk(
+      isPrepPlanStale(planData, studentUpdated),
+      "isPrepPlanStale must return true when student profile changes"
+    )
+  })
+
   return results
 }
 
@@ -214,3 +274,4 @@ if (gProc && gProc.argv[1]?.includes("opportunityMatcher.test.ts")) {
   console.log(`\nTest Summary: ${passed} passed, ${failed} failed.`)
   if (failed > 0) gProc.exit(1)
 }
+

@@ -32,6 +32,7 @@ import {
   fetchUserOpportunityMatches,
   fetchUserPrepPlans,
   fetchUserSavedOpportunities,
+  fetchUserTaskTitles,
   toggleSaveOpportunity,
   updateApplicationStatus,
 } from "@/lib/opportunities/opportunityService"
@@ -40,6 +41,11 @@ import {
   generateOpportunityPrepPlan,
   type ComprehensiveMatchResult,
 } from "@/lib/opportunities/opportunityAIService"
+import {
+  calculateDeterministicMatch,
+  isMatchStale,
+  isPrepPlanStale,
+} from "@/lib/opportunities/deterministicMatcher"
 import type {
   ApplicationStatus,
   Opportunity,
@@ -111,36 +117,57 @@ export function OpportunitiesPage() {
       setIsLoading(true)
       setErrorMsg(null)
       try {
-        const [opps, savedList, appsList, matchList, planList] = await Promise.all([
+        const [opps, savedList, appsList, matchList, planList, existingTaskTitles, profile] = await Promise.all([
           fetchOpportunities(),
           fetchUserSavedOpportunities(user.id),
           fetchUserApplications(user.id),
           fetchUserOpportunityMatches(user.id),
           fetchUserPrepPlans(user.id),
+          fetchUserTaskTitles(user.id),
+          profileService.get(user.id),
         ])
 
         if (!isMounted) return
 
         setOpportunities(opps)
         setSavedIds(new Set(savedList.map((s) => s.opportunity_id)))
+        setAddedTasks(existingTaskTitles)
 
         const appMap = new Map<string, ApplicationStatus>()
         appsList.forEach((a) => appMap.set(a.opportunity_id, a.status))
         setApplications(appMap)
 
+        const studentContext = {
+          skills: profile?.skills ?? [],
+          careerGoals: profile?.placement_goals ?? [],
+          semester: profile?.semester ?? "Semester 6",
+          internshipInterests: profile?.internship_goals ?? [],
+          hackathonInterests: profile?.hackathon_interests ?? [],
+        }
+
+        // Cache Invalidation Check: filter out stale matches if student profile context has changed
         const matchMap = new Map<string, ComprehensiveMatchResult>()
         matchList.forEach((m) => {
-          matchMap.set(m.opportunity_id, {
-            ...m,
-            eligibility_status: "verified",
-            eligibility_notes: "Criteria verified.",
-            eligibility_location_score: m.match_score,
-          })
+          const opp = opps.find((o) => o.id === m.opportunity_id)
+          if (opp && !isMatchStale(m, studentContext, opp)) {
+            const deterministic = calculateDeterministicMatch(studentContext, opp)
+            matchMap.set(m.opportunity_id, {
+              ...m,
+              eligibility_status: deterministic.eligibility_status,
+              eligibility_notes: deterministic.eligibility_notes,
+              eligibility_location_score: deterministic.eligibility_location_score,
+            })
+          }
         })
         setMatches(matchMap)
 
+        // Cache Invalidation Check: filter out stale prep plans if student profile context has changed
         const planMap = new Map<string, OpportunityPrepPlanData>()
-        planList.forEach((p) => planMap.set(p.opportunity_id, p.plan))
+        planList.forEach((p) => {
+          if (!isPrepPlanStale(p.plan, studentContext)) {
+            planMap.set(p.opportunity_id, p.plan)
+          }
+        })
         setPrepPlans(planMap)
       } catch (err) {
         console.error("Failed loading opportunity data:", err)
@@ -163,34 +190,53 @@ export function OpportunitiesPage() {
     setIsLoading(true)
     setErrorMsg(null)
     try {
-      const [opps, savedList, appsList, matchList, planList] = await Promise.all([
+      const [opps, savedList, appsList, matchList, planList, existingTaskTitles, profile] = await Promise.all([
         fetchOpportunities(),
         fetchUserSavedOpportunities(user.id),
         fetchUserApplications(user.id),
         fetchUserOpportunityMatches(user.id),
         fetchUserPrepPlans(user.id),
+        fetchUserTaskTitles(user.id),
+        profileService.get(user.id),
       ])
 
       setOpportunities(opps)
       setSavedIds(new Set(savedList.map((s) => s.opportunity_id)))
+      setAddedTasks(existingTaskTitles)
 
       const appMap = new Map<string, ApplicationStatus>()
       appsList.forEach((a) => appMap.set(a.opportunity_id, a.status))
       setApplications(appMap)
 
+      const studentContext = {
+        skills: profile?.skills ?? [],
+        careerGoals: profile?.placement_goals ?? [],
+        semester: profile?.semester ?? "Semester 6",
+        internshipInterests: profile?.internship_goals ?? [],
+        hackathonInterests: profile?.hackathon_interests ?? [],
+      }
+
       const matchMap = new Map<string, ComprehensiveMatchResult>()
       matchList.forEach((m) => {
-        matchMap.set(m.opportunity_id, {
-          ...m,
-          eligibility_status: "verified",
-          eligibility_notes: "Criteria verified.",
-          eligibility_location_score: m.match_score,
-        })
+        const opp = opps.find((o) => o.id === m.opportunity_id)
+        if (opp && !isMatchStale(m, studentContext, opp)) {
+          const deterministic = calculateDeterministicMatch(studentContext, opp)
+          matchMap.set(m.opportunity_id, {
+            ...m,
+            eligibility_status: deterministic.eligibility_status,
+            eligibility_notes: deterministic.eligibility_notes,
+            eligibility_location_score: deterministic.eligibility_location_score,
+          })
+        }
       })
       setMatches(matchMap)
 
       const planMap = new Map<string, OpportunityPrepPlanData>()
-      planList.forEach((p) => planMap.set(p.opportunity_id, p.plan))
+      planList.forEach((p) => {
+        if (!isPrepPlanStale(p.plan, studentContext)) {
+          planMap.set(p.opportunity_id, p.plan)
+        }
+      })
       setPrepPlans(planMap)
     } catch (err) {
       console.error("Failed loading opportunity data:", err)
@@ -225,24 +271,26 @@ export function OpportunitiesPage() {
   async function handleRunMatch(opportunity: Opportunity) {
     if (!user?.id) return
 
-    // Reuse existing cached match if available
-    const existingMatch = matches.get(opportunity.id)
-    if (existingMatch) {
-      setSelectedMatch({ opportunity, match: existingMatch })
-      return
-    }
-
     setMatchingId(opportunity.id)
     setErrorMsg(null)
     try {
       const profile = await profileService.get(user.id)
-      const computed = await computeOpportunityMatch(session, user.id, opportunity, {
+      const studentContext = {
         skills: profile?.skills ?? [],
         careerGoals: profile?.placement_goals ?? [],
         semester: profile?.semester ?? "Semester 6",
         internshipInterests: profile?.internship_goals ?? [],
         hackathonInterests: profile?.hackathon_interests ?? [],
-      })
+      }
+
+      // Check if existing match is current
+      const existingMatch = matches.get(opportunity.id)
+      if (existingMatch && !isMatchStale(existingMatch, studentContext, opportunity)) {
+        setSelectedMatch({ opportunity, match: existingMatch })
+        return
+      }
+
+      const computed = await computeOpportunityMatch(session, user.id, opportunity, studentContext)
       if (computed) {
         setMatches((prev) => new Map(prev).set(opportunity.id, computed))
         setSelectedMatch({ opportunity, match: computed })
@@ -258,22 +306,26 @@ export function OpportunitiesPage() {
   async function handleRunPrepPlan(opportunity: Opportunity) {
     if (!user?.id) return
 
-    // Reuse existing prep plan if available
-    const existingPlan = prepPlans.get(opportunity.id)
-    if (existingPlan) {
-      setSelectedPrepPlan({ opportunity, plan: existingPlan })
-      return
-    }
-
     setPrepId(opportunity.id)
     setErrorMsg(null)
     try {
       const profile = await profileService.get(user.id)
-      const plan = await generateOpportunityPrepPlan(session, user.id, opportunity, {
+      const studentContext = {
         skills: profile?.skills ?? [],
         careerGoals: profile?.placement_goals ?? [],
         semester: profile?.semester ?? "Semester 6",
-      })
+        internshipInterests: profile?.internship_goals ?? [],
+        hackathonInterests: profile?.hackathon_interests ?? [],
+      }
+
+      // Check if existing prep plan is current
+      const existingPlan = prepPlans.get(opportunity.id)
+      if (existingPlan && !isPrepPlanStale(existingPlan, studentContext)) {
+        setSelectedPrepPlan({ opportunity, plan: existingPlan })
+        return
+      }
+
+      const plan = await generateOpportunityPrepPlan(session, user.id, opportunity, studentContext)
       if (plan) {
         setPrepPlans((prev) => new Map(prev).set(opportunity.id, plan))
         setSelectedPrepPlan({ opportunity, plan })
@@ -285,6 +337,7 @@ export function OpportunitiesPage() {
       setPrepId(null)
     }
   }
+
 
   async function handleConvertToStudentTask(taskTitle: string) {
     if (!user?.id) return

@@ -13,6 +13,17 @@ export interface DeterministicMatchResult {
   eligibility_notes: string
   matched_skills: string[]
   missing_skills: string[]
+  fingerprint: string
+}
+
+export function computeStudentProfileFingerprint(student: StudentContextPayload): string {
+  const normSkills = (student.skills ?? []).map((s) => normalizeSkill(s)).sort().join(",")
+  const normGoals = (student.careerGoals ?? []).map((g) => g.toLowerCase().trim()).sort().join(",")
+  const normInternships = (student.internshipInterests ?? []).map((g) => g.toLowerCase().trim()).sort().join(",")
+  const normHackathons = (student.hackathonInterests ?? []).map((g) => g.toLowerCase().trim()).sort().join(",")
+  const sem = (student.semester ?? "").toLowerCase().trim()
+
+  return `${normSkills}|${normGoals}|${normInternships}|${normHackathons}|${sem}`
 }
 
 export function calculateGoalMatch(
@@ -122,6 +133,8 @@ export function calculateDeterministicMatch(
   student: StudentContextPayload,
   opportunity: Opportunity
 ): DeterministicMatchResult {
+  const fingerprint = computeStudentProfileFingerprint(student)
+
   // 1. Skill Match (50%)
   const { skillScore, matched, missing } = calculateSkillMatch(
     student.skills ?? [],
@@ -150,5 +163,39 @@ export function calculateDeterministicMatch(
     eligibility_notes: eligLoc.notes,
     matched_skills: matched,
     missing_skills: missing,
+    fingerprint,
   }
 }
+
+export function isMatchStale(
+  cachedMatch: { match_score: number; skill_match_score: number; goal_match_score: number; explanation?: string },
+  currentStudent: StudentContextPayload,
+  opportunity: Opportunity
+): boolean {
+  const fresh = calculateDeterministicMatch(currentStudent, opportunity)
+
+  const fpMatch = cachedMatch.explanation?.match(/\[fp:(.*?)\]/)
+  if (fpMatch && fpMatch[1]) {
+    return fpMatch[1] !== fresh.fingerprint
+  }
+
+  if (
+    cachedMatch.match_score !== fresh.match_score ||
+    cachedMatch.skill_match_score !== fresh.skill_match_score ||
+    cachedMatch.goal_match_score !== fresh.goal_match_score
+  ) {
+    return true
+  }
+
+  return false
+}
+
+export function isPrepPlanStale(
+  planData: { student_fingerprint?: string },
+  currentStudent: StudentContextPayload
+): boolean {
+  if (!planData.student_fingerprint) return false
+  const freshFingerprint = computeStudentProfileFingerprint(currentStudent)
+  return planData.student_fingerprint !== freshFingerprint
+}
+

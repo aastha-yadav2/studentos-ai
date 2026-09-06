@@ -2,7 +2,7 @@ import type { Session } from "@supabase/supabase-js"
 import { requestAI } from "@/lib/ai/router-client"
 import type { Opportunity, OpportunityMatch, OpportunityPrepPlanData } from "./opportunityTypes"
 import { saveOpportunityMatch, saveOpportunityPrepPlan } from "./opportunityService"
-import { calculateDeterministicMatch, type EligibilityStatus } from "./deterministicMatcher"
+import { calculateDeterministicMatch, computeStudentProfileFingerprint, type EligibilityStatus } from "./deterministicMatcher"
 
 export interface StudentContextPayload {
   skills?: string[]
@@ -64,7 +64,7 @@ export async function computeOpportunityMatch(
       "Review the student context and deterministic match scores provided. DO NOT generate numeric scores. Provide a 2-3 sentence qualitative explanation and list key strengths. Return JSON: { explanation: string, strengths: string[], missing_skills: string[] }",
   }
 
-  let qualitativeExplanation = `Deterministic match score of ${deterministic.match_score}% calculated based on Skill Fit (${deterministic.skill_match_score}%), Goal Alignment (${deterministic.goal_match_score}%), and Eligibility/Location (${deterministic.eligibility_location_score}%).`
+  let qualitativeExplanation = `Deterministic match score of ${deterministic.match_score}% calculated based on Skill Fit (${deterministic.skill_match_score}%), Goal Alignment (${deterministic.goal_match_score}%), and Eligibility/Location (${deterministic.eligibility_location_score}%). AI qualitative reasoning is temporarily offline.`
   let strengths = deterministic.matched_skills.length > 0 ? deterministic.matched_skills : ["Relevant technical background"]
   let missingSkills = deterministic.missing_skills
 
@@ -84,6 +84,9 @@ export async function computeOpportunityMatch(
     console.warn("AI router qualitative explanation failed, falling back to deterministic explanation:", error)
   }
 
+  // Append fingerprint annotation for reliable cache invalidation without DB schema changes
+  const explanationWithFP = `${qualitativeExplanation}\n\n[fp:${deterministic.fingerprint}]`
+
   // 2. PERSIST THE EXACT DETERMINISTIC SCORES (LLM IS IGNORED FOR NUMERIC VALUES)
   const matchRecord = {
     user_id: userId,
@@ -93,7 +96,7 @@ export async function computeOpportunityMatch(
     goal_match_score: deterministic.goal_match_score,
     strengths,
     missing_skills: missingSkills,
-    explanation: qualitativeExplanation,
+    explanation: explanationWithFP,
   }
 
   const saved = await saveOpportunityMatch(matchRecord)
@@ -113,6 +116,8 @@ export async function generateOpportunityPrepPlan(
   opportunity: Opportunity,
   studentContext: StudentContextPayload
 ): Promise<OpportunityPrepPlanData | null> {
+  const currentFingerprint = computeStudentProfileFingerprint(studentContext)
+
   const payload = {
     opportunity: {
       title: opportunity.title,
@@ -133,7 +138,11 @@ export async function generateOpportunityPrepPlan(
 
   try {
     const result = await requestAI<RawAIMatchResponse>(session, "opportunity_prep_plan", payload)
-    const planData: OpportunityPrepPlanData = JSON.parse(result.data.content)
+    const rawPlanData: OpportunityPrepPlanData = JSON.parse(result.data.content)
+    const planData: OpportunityPrepPlanData = {
+      ...rawPlanData,
+      student_fingerprint: currentFingerprint,
+    }
 
     await saveOpportunityPrepPlan({
       user_id: userId,
@@ -176,6 +185,7 @@ export async function generateOpportunityPrepPlan(
         },
       ],
       recommended_resources: ["Official Documentation", "GitHub Example Repositories"],
+      student_fingerprint: currentFingerprint,
     }
 
     await saveOpportunityPrepPlan({
@@ -187,3 +197,4 @@ export async function generateOpportunityPrepPlan(
     return fallbackPlan
   }
 }
+

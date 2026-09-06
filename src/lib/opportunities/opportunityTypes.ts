@@ -78,6 +78,7 @@ export interface OpportunityPrepPlanData {
   recommended_projects: string[]
   key_milestones: PrepPlanStep[]
   recommended_resources: string[]
+  student_fingerprint?: string
 }
 
 export interface OpportunityPrepPlan {

@@ -154,6 +154,20 @@ export async function saveOpportunityPrepPlan(prepPlan: Omit<OpportunityPrepPlan
   return data as OpportunityPrepPlan
 }
 
+export async function fetchUserTaskTitles(userId: string): Promise<Set<string>> {
+  if (!supabase || !userId) return new Set()
+  const { data, error } = await supabase
+    .from("student_tasks")
+    .select("title")
+    .eq("user_id", userId)
+
+  if (error) {
+    console.error("Error fetching user tasks:", error)
+    return new Set()
+  }
+  return new Set(data.map((t: { title: string }) => t.title))
+}
+
 export async function createTaskFromOpportunityMilestone(
   userId: string,
   title: string,
@@ -161,12 +175,27 @@ export async function createTaskFromOpportunityMilestone(
   dueDaysOffset = 7
 ): Promise<boolean> {
   if (!supabase || !userId) return false
+  const trimmedTitle = title.trim()
+
+  // 1. Task Duplication Prevention (DB Level Check)
+  const { data: existing } = await supabase
+    .from("student_tasks")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("title", trimmedTitle)
+    .limit(1)
+
+  if (existing && existing.length > 0) {
+    // Task already exists; skip duplicate insertion safely
+    return true
+  }
+
   const dueAt = new Date()
   dueAt.setDate(dueAt.getDate() + dueDaysOffset)
 
   const { error } = await supabase.from("student_tasks").insert({
     user_id: userId,
-    title: title.trim(),
+    title: trimmedTitle,
     due_at: dueAt.toISOString(),
     priority,
     estimated_hours: 2,
@@ -179,3 +208,4 @@ export async function createTaskFromOpportunityMilestone(
   }
   return true
 }
+
