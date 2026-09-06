@@ -1,6 +1,15 @@
 -- ── Opportunity Intelligence System Database Schema ─────────────────────────
 -- Migration: 20260718050000_create_opportunity_intelligence.sql
 
+-- Helper function for timestamp updating
+create or replace function public.set_updated_at()
+returns trigger language plpgsql security invoker set search_path = public as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 -- 1. Verified Public Opportunity Catalog (Read-only for authenticated users)
 create table if not exists public.opportunities (
   id uuid primary key default gen_random_uuid(),
@@ -76,6 +85,10 @@ create table if not exists public.opportunity_prep_plans (
 );
 
 -- ── Query Indexes ──────────────────────────────────────────────────────────
+create index if not exists opportunities_status_idx on public.opportunities(status);
+create index if not exists opportunities_deadline_idx on public.opportunities(deadline);
+create index if not exists opportunities_type_idx on public.opportunities(type);
+create index if not exists opportunities_category_idx on public.opportunities(category);
 create index if not exists opportunities_status_deadline_idx on public.opportunities(status, deadline);
 create index if not exists opportunities_type_cat_idx on public.opportunities(type, category);
 create index if not exists opportunity_matches_user_score_idx on public.opportunity_matches(user_id, match_score desc);
@@ -218,3 +231,4 @@ on conflict (source_platform, source_url) do update set
   description = excluded.description,
   required_skills = excluded.required_skills,
   last_verified_at = now();
+
