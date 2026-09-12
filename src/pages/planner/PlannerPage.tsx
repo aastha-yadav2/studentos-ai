@@ -29,7 +29,7 @@ import {
 } from "lucide-react"
 import { useAuth } from "@/auth/auth-provider"
 import { supabase, supabaseConfigError } from "@/lib/supabase"
-import { buildAIContext } from "@/lib/memory/contextBuilder"
+import { buildAIContext, buildCompactPlannerContext } from "@/lib/memory/contextBuilder"
 import { plannerHistoryService } from "@/lib/memory/plannerHistoryService"
 import { preferenceLearningService } from "@/lib/memory/preferenceLearningService"
 import { adaptivePlanner } from "@/lib/adaptive/adaptivePlanner"
@@ -254,25 +254,8 @@ export function PlannerPage() {
   const plan = useMemo(() => parsePlan(response), [response])
 
   async function workspaceContext() {
-    if (!supabase || !user) return {}
-    const [profile, goals, tasks, subjects, career, memory, adaptiveLearning] = await Promise.all([
-      supabase.from("student_profiles").select("semester,skills,career_goals,learning_goals").eq("user_id", user.id).maybeSingle(),
-      supabase.from("goals").select("title,category,target_date,progress,status").eq("user_id", user.id).eq("status", "active").limit(8),
-      supabase.from("student_tasks").select("title,due_at,priority,estimated_hours,status").eq("user_id", user.id).neq("status", "completed").order("due_at").limit(12),
-      supabase.from("subjects").select("name,exam_date,confidence").eq("user_id", user.id).order("exam_date").limit(8),
-      supabase.from("career_profiles").select("placement_goal,target_date,internships,companies,skills").eq("user_id", user.id).maybeSingle(),
-      buildAIContext(user.id),
-      adaptivePlanner.contextForPlan(user.id),
-    ])
-    return {
-      profile: profile.data ?? null,
-      projects_and_goals: goals.data ?? [],
-      productivity_tasks: tasks.data ?? [],
-      study_subjects: subjects.data ?? [],
-      career_profile: career.data ?? null,
-      memory,
-      adaptive_learning: adaptiveLearning,
-    }
+    if (!user) return {}
+    return await buildCompactPlannerContext(user.id)
   }
 
   async function generatePlan() {
@@ -300,95 +283,13 @@ export function PlannerPage() {
       const context = await workspaceContext()
       setStage("Crafting mentor-grade preparation & pattern mastery plan...")
 
-      const instructionPrompt = `
-Generate a structured Academic & Technical Mentor Preparation Plan.
-Act as an expert human educator (especially for DSA / CS / Exams). Do NOT output generic timetables ("Day 1: Arrays").
-
-Required Mentor Plan Structure JSON:
-{
-  "title": "Comprehensive Master Plan",
-  "goal_analysis": {
-    "objective": "Clear description of target objective",
-    "scope": "Scope and focus area",
-    "preparation_mode": "Exam Mode (Theory + Dry Runs)" or "Interview/Coding Mode" or "Hybrid Academic Prep",
-    "yield_strategy": {
-      "high_priority_focus": "High yield / prerequisite topics first",
-      "medium_priority_focus": "Secondary topics after mastering core",
-      "low_priority_optional": "Nice to have topics if time permits"
-    },
-    "time_compressed_fallback": "What to prioritize if you only have limited days or fall behind",
-    "module_coordination": [{"module": "Study", "role": "...", "priority": "High"}]
-  },
-  "topic_mastery_guides": [
-    {
-      "topic": "Topic / Pattern Name (e.g. Two Pointers / Sliding Window / Prefix Sum / Monotonic Stack)",
-      "category": "DSA Pattern" or "Theory & Concepts" or "Core Skill",
-      "priority": "High",
-      "what_is_it": "Intuitive simple explanation",
-      "why_it_works": "Deep intuition behind why it works",
-      "how_to_recognize": "Exact signals/clues in problem statements that hint at this pattern",
-      "remember_this": ["Key mental rule 1", "Key complexity note 2"],
-      "common_traps": ["Beginner mistake 1 to avoid"],
-      "complexity_notes": "Time Complexity & Space Complexity notes",
-      "practice_progression": [
-        {"level": "Easy", "goal": "Solve 2 basic traversal questions without looking at solution"},
-        {"level": "Medium", "goal": "Solve 2 medium pattern variations"}
-      ],
-      "move_on_checklist": ["I can explain the pattern without notes", "I can recognize signal in new problem"]
-    }
-  ],
-  "weekly_roadmap": [
-    {
-      "week": "Week 1",
-      "outcome": "Clear weekly milestone",
-      "deliverables": ["Deliverable 1"],
-      "estimated_hours": 10,
-      "move_on_checklist": ["Checklist item 1"]
-    }
-  ],
-  "daily_execution_plan": [
-    {
-      "day": "Day 1",
-      "focus": "Specific pattern or topic focus",
-      "estimated_hours": 2.5,
-      "tasks": [
-        {
-          "action": "Actionable task step",
-          "type": "Teach/Learn" or "Practice" or "Recall" or "Revise" or "Test",
-          "estimated_minutes": 45,
-          "move_on_trigger": "Pass self-check before moving to next task"
-        }
-      ]
-    }
-  ],
-  "remember_this_notes": [
-    {
-      "topic": "Pattern / Topic Name",
-      "key_takeaway": "Short high-yield formula or mental model",
-      "active_recall_prompt": "Close your notes and explain X in your own words"
-    }
-  ],
-  "common_mistakes_to_avoid": ["Mistake 1"],
-  "backup_plan_if_behind": {
-    "trigger_condition": "If you miss more than 2 days or run out of time",
-    "actionable_compression_steps": ["Step 1 to compress syllabus"]
-  },
-  "priority_matrix": [{"item": "Item", "impact": "High", "urgency": "High", "quadrant": "Q1", "next_action": "Action"}],
-  "estimated_effort": {"total_hours": 40, "weekly_hours": 10, "allocation": [{"module": "Study", "hours": 30, "rationale": "Reason"}]},
-  "risks_and_blockers": [{"risk": "Risk", "mitigation": "Mitigation"}],
-  "success_metrics": [{"metric": "Metric", "target": "Target", "cadence": "Daily"}],
-  "ai_reasoning": {"rationale": "Pedagogical rationale", "tradeoffs": [], "assumptions": []},
-  "recommendations": ["Actionable recommendation 1"]
-}
-`
-
       const result = await requestAI<{ content: string }>(session, "planner", {
         goal: goal.trim(),
         goalType: type,
         timeframe,
         weeklyHours: Number(hours) || 10,
         workspaceContext: context,
-        instruction: instructionPrompt,
+        instruction: "Return JSON plan: title, goal_analysis, topic_mastery_guides, weekly_roadmap, daily_execution_plan, remember_this_notes, common_mistakes_to_avoid, backup_plan_if_behind, priority_matrix, estimated_effort, risks_and_blockers, success_metrics, ai_reasoning, recommendations.",
       })
 
       setResponse(result.data.content)

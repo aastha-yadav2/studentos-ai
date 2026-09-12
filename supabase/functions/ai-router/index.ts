@@ -57,6 +57,26 @@ Deno.serve(async (request) => {
   console.info(JSON.stringify({ event: "ai_secret_loaded", requestType, secret: "GROQ_API_KEY" }))
 
   try {
+    // Payload Token Safety Guard: ensure total input message stays well below Groq 7000 ITPM limit
+    let sanitizedPayload = payload
+    const payloadStr = JSON.stringify(payload)
+    if (payloadStr.length > 6000) {
+      console.warn(JSON.stringify({ event: "payload_safety_compressed", requestType, originalLength: payloadStr.length }))
+      if (typeof payload === "object" && payload !== null) {
+        const p = { ...(payload as Record<string, unknown>) }
+        if (p.workspaceContext && typeof p.workspaceContext === "object") {
+          const ctx = { ...(p.workspaceContext as Record<string, unknown>) }
+          delete ctx.memory
+          delete ctx.plannerHistory
+          delete ctx.recentInteractions
+          delete ctx.productivity_tasks
+          delete ctx.recent_memories
+          p.workspaceContext = ctx
+        }
+        sanitizedPayload = p
+      }
+    }
+
     const models = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "qwen/qwen3.8-27b"]
     let upstream: Response | undefined
     let upstreamBody: unknown
@@ -68,7 +88,7 @@ Deno.serve(async (request) => {
       console.info(JSON.stringify({ event: "groq_request", requestType, model }))
       upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         signal: AbortSignal.timeout(55_000), method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: [{ role: "system", content: getSystemPrompt(requestType) }, { role: "user", content: JSON.stringify(payload) }], response_format: { type: "json_object" } })
+        body: JSON.stringify({ model, messages: [{ role: "system", content: getSystemPrompt(requestType) }, { role: "user", content: JSON.stringify(sanitizedPayload) }], response_format: { type: "json_object" } })
       })
       upstreamBody = await upstream.json().catch(() => null)
       if (upstream.ok || i === models.length - 1) break
