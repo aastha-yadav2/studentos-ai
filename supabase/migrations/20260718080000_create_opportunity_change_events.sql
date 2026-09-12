@@ -4,28 +4,42 @@
 -- 1. Create Change Events Audit Table
 create table if not exists public.opportunity_change_events (
   id uuid primary key default gen_random_uuid(),
-  opportunity_id uuid references public.opportunities(id) on delete cascade,
+  opportunity_id uuid references public.opportunities(id) on delete set null,
+  source_platform text,
   change_type text not null check (change_type in (
     'registration_opened',
     'registration_closed',
-    'deadline_changed',
     'application_open_date_changed',
+    'deadline_changed',
+    'event_start_date_changed',
+    'event_end_date_changed',
     'status_changed',
     'eligibility_changed',
+    'skills_changed',
     'required_skills_changed',
-    'became_deprecated',
+    'location_changed',
+    'team_size_changed',
+    'prize_changed',
+    'opportunity_deprecated',
+    'opportunity_reactivated',
+    'source_changed',
     'new_opportunity_discovered'
   )),
   field_changed text not null,
-  old_value text,
-  new_value text,
+  old_value jsonb,
+  new_value jsonb,
   summary text not null,
-  detected_at timestamptz not null default now()
+  source_url text,
+  metadata jsonb default '{}'::jsonb,
+  detected_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
 );
 
--- 2. Query Index on opportunity_id and detected_at
+-- 2. Query Indexes
 create index if not exists opportunity_change_events_opp_idx on public.opportunity_change_events(opportunity_id);
 create index if not exists opportunity_change_events_detected_idx on public.opportunity_change_events(detected_at desc);
+create index if not exists opportunity_change_events_type_idx on public.opportunity_change_events(change_type);
+create index if not exists opportunity_change_events_platform_idx on public.opportunity_change_events(source_platform);
 
 -- 3. Row Level Security (RLS) Policy
 alter table public.opportunity_change_events enable row level security;

@@ -26,6 +26,8 @@ export interface ComprehensiveMatchResult extends OpportunityMatch {
   eligibility_status: EligibilityStatus
   eligibility_notes: string
   eligibility_location_score: number
+  gaps?: string[]
+  recommended_actions?: string[]
 }
 
 export async function computeOpportunityMatch(

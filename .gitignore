@@ -6,3 +6,5 @@ dist
 .DS_Store
 .vite
 *.local
+supabase/.temp/
+scratch/

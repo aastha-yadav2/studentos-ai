@@ -308,8 +308,8 @@ export const VERIFIED_FALLBACK_OPPORTUNITIES: Opportunity[] = [
 ]
 
 export async function fetchOpportunities(): Promise<Opportunity[]> {
-  const ingestedHackathons = runMultiSourceIngestionPipeline()
-  const combinedFallback = deduplicateOpportunities([...VERIFIED_FALLBACK_OPPORTUNITIES, ...ingestedHackathons])
+  const staticCatalog = runMultiSourceIngestionPipeline()
+  const combinedFallback = deduplicateOpportunities([...VERIFIED_FALLBACK_OPPORTUNITIES, ...staticCatalog])
 
   if (!supabase) return combinedFallback
   try {
@@ -324,12 +324,26 @@ export async function fetchOpportunities(): Promise<Opportunity[]> {
       return combinedFallback
     }
 
-    // Merge fallback ambassador & multi-source hackathons if remote DB is partially migrated
+    // Merge database canonical opportunities with verified fallbacks
     const merged = deduplicateOpportunities([...(data as Opportunity[]), ...combinedFallback])
     return merged
   } catch (err) {
     console.error("Error fetching opportunities, using verified fallback catalog:", err)
     return combinedFallback
+  }
+}
+
+export async function triggerLiveOpportunityIngestion(): Promise<{ success: boolean; ingestedTotal?: number; error?: string }> {
+  if (!supabase) return { success: false, error: "Supabase client not initialized" }
+  try {
+    const { data, error } = await supabase.functions.invoke("opportunity-ingest", {
+      body: { trigger: "manual" },
+    })
+    if (error) return { success: false, error: error.message }
+    return { success: true, ingestedTotal: data?.ingestedTotal }
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    return { success: false, error: errorMsg }
   }
 }
 
@@ -532,5 +546,18 @@ export async function fetchOpportunityChangeEvents(opportunityId?: string): Prom
   }
   return data as import("./freshness/types").OpportunityChangeEvent[]
 }
+
+export async function saveOpportunityChangeEvents(
+  events: import("./freshness/types").OpportunityChangeEvent[]
+): Promise<boolean> {
+  if (!supabase || events.length === 0) return true
+  const { error } = await supabase.from("opportunity_change_events").insert(events)
+  if (error) {
+    console.error("Error inserting opportunity change events:", error)
+    return false
+  }
+  return true
+}
+
 
 

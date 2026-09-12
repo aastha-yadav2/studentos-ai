@@ -18,6 +18,7 @@ const TasksPage = lazy(() => import("@/pages/tasks/TasksPage").then(({ TasksPage
 const MemoryPage = lazy(() => import("@/pages/memory/MemoryPage").then(({ MemoryPage }) => ({ default: MemoryPage })))
 const ReflectionPage = lazy(() => import("@/pages/reflection/ReflectionPage").then(({ ReflectionPage }) => ({ default: ReflectionPage })))
 const OpportunitiesPage = lazy(() => import("@/pages/opportunities/OpportunitiesPage").then(({ OpportunitiesPage }) => ({ default: OpportunitiesPage })))
+const RadarPage = lazy(() => import("@/pages/radar/RadarPage").then(({ RadarPage }) => ({ default: RadarPage })))
 const page = (Page: React.LazyExoticComponent<React.ComponentType>) => <Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">Loading StudentOS…</div>}><Page /></Suspense>
 
 export const router = createBrowserRouter([
@@ -35,7 +36,7 @@ export const router = createBrowserRouter([
     errorElement: <AppErrorPage />,
     children: [
       { element: <AppShell />, children: [
-        { index: true, element: page(DashboardPage) }, { path: "planner", element: page(PlannerPage) },
+        { index: true, element: page(DashboardPage) }, { path: "radar", element: page(RadarPage) }, { path: "planner", element: page(PlannerPage) },
         { path: "opportunities", element: page(OpportunitiesPage) },
         { path: "study", element: page(StudyPage) }, { path: "career", element: page(CareerPage) },
         { path: "tasks", element: page(TasksPage) }, { path: "goals", element: page(GoalsPage) },

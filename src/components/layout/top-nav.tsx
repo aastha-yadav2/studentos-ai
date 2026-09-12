@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/auth/auth-provider"
+import { NotificationBell } from "@/components/notifications/NotificationBell"
 
 export function TopNav() {
   const { user, signOut } = useAuth()
@@ -26,6 +27,7 @@ export function TopNav() {
           <Input className="max-w-xl pl-9" placeholder="Search tasks, goals, plans, agents..." />
         </div>
         <Button asChild variant="secondary" className="ml-auto"><Link to="/app/planner"><Sparkles className="size-4" />Ask Planner</Link></Button>
+        <NotificationBell />
         <div className="hidden max-w-40 truncate text-right text-xs text-muted-foreground md:block">{user?.email}</div>
         <Button variant="ghost" size="sm" onClick={handleSignOut} disabled={isSigningOut} aria-label="Sign out"><LogOut className="size-4" /><span className="hidden sm:inline">Sign out</span></Button>
         <div className="flex size-10 items-center justify-center rounded-full border border-border bg-muted text-sm font-semibold">{user?.email?.slice(0, 2).toUpperCase() ?? "SO"}</div>

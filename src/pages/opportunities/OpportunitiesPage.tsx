@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { Link, useSearchParams } from "react-router-dom"
 import {
   ArrowUpDown,
   Bookmark,
@@ -13,6 +14,7 @@ import {
   Layers,
   Loader2,
   PlusCircle,
+  Radio,
   RefreshCw,
   Search,
   Sparkles,
@@ -33,6 +35,7 @@ import {
   fetchUserPrepPlans,
   fetchUserSavedOpportunities,
   fetchUserTaskTitles,
+  fetchOpportunityChangeEvents,
   toggleSaveOpportunity,
   updateApplicationStatus,
 } from "@/lib/opportunities/opportunityService"
@@ -46,6 +49,9 @@ import {
   isMatchStale,
   isPrepPlanStale,
 } from "@/lib/opportunities/deterministicMatcher"
+import { buildOpportunityRadar } from "@/lib/opportunities/radar/radarService"
+import { RadarWidget } from "@/components/radar/RadarWidget"
+import type { RadarResult } from "@/lib/opportunities/radar/types"
 import type {
   ApplicationStatus,
   Opportunity,
@@ -53,7 +59,7 @@ import type {
   OpportunityType,
 } from "@/lib/opportunities/opportunityTypes"
 
-type TabType = "catalog" | "saved" | "applications" | "prep"
+type TabType = "catalog" | "radar" | "saved" | "applications" | "prep"
 type SortOption = "match_desc" | "title_asc" | "verified_first" | "newest"
 
 const ALL_APPLICATION_STATUSES: { value: ApplicationStatus; label: string }[] = [
@@ -92,17 +98,22 @@ function formatApplicationWindow(opp: Opportunity): string {
 
 export function OpportunitiesPage() {
   const { user, session } = useAuth()
+  const [searchParams] = useSearchParams()
+  const targetOppId = searchParams.get("id")
+  const requestedTab = searchParams.get("tab")
+
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
   const [applications, setApplications] = useState<Map<string, ApplicationStatus>>(new Map())
   const [matches, setMatches] = useState<Map<string, ComprehensiveMatchResult>>(new Map())
   const [prepPlans, setPrepPlans] = useState<Map<string, OpportunityPrepPlanData>>(new Map())
+  const [radarResult, setRadarResult] = useState<RadarResult | null>(null)
 
   const [isLoading, setIsLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   // Navigation & Filters
-  const [activeTab, setActiveTab] = useState<TabType>("catalog")
+  const [activeTab, setActiveTab] = useState<TabType>(requestedTab === "radar" ? "radar" : "catalog")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedType, setSelectedType] = useState<OpportunityType | "all">("all")
   const [sortOption, setSortOption] = useState<SortOption>("match_desc")
@@ -138,21 +149,30 @@ export function OpportunitiesPage() {
       setIsLoading(true)
       setErrorMsg(null)
       try {
-        const [opps, savedList, appsList, matchList, planList, existingTaskTitles, profile] = await Promise.all([
+        const [opps, savedList, appsList, matchList, planList, existingTaskTitles, changeEvents, profile] = await Promise.all([
           fetchOpportunities(),
           fetchUserSavedOpportunities(user.id),
           fetchUserApplications(user.id),
           fetchUserOpportunityMatches(user.id),
           fetchUserPrepPlans(user.id),
           fetchUserTaskTitles(user.id),
+          fetchOpportunityChangeEvents(),
           profileService.get(user.id),
         ])
 
         if (!isMounted) return
 
         setOpportunities(opps)
-        setSavedIds(new Set(savedList.map((s) => s.opportunity_id)))
+        const savedSet = new Set(savedList.map((s) => s.opportunity_id))
+        setSavedIds(savedSet)
         setAddedTasks(existingTaskTitles)
+
+        if (targetOppId) {
+          const targetOpp = opps.find((o) => o.id === targetOppId)
+          if (targetOpp) {
+            setSelectedOpportunity(targetOpp)
+          }
+        }
 
         const appMap = new Map<string, ApplicationStatus>()
         appsList.forEach((a) => appMap.set(a.opportunity_id, a.status))
@@ -166,7 +186,7 @@ export function OpportunitiesPage() {
           hackathonInterests: profile?.hackathon_interests ?? [],
         }
 
-        // Cache Invalidation Check: filter out stale matches if student profile context has changed
+        // Cache Invalidation & Deterministic Match pre-computation for ALL catalog opportunities
         const matchMap = new Map<string, ComprehensiveMatchResult>()
         matchList.forEach((m) => {
           const opp = opps.find((o) => o.id === m.opportunity_id)
@@ -180,6 +200,31 @@ export function OpportunitiesPage() {
             })
           }
         })
+
+        // Precompute deterministic fit score for remaining catalog items
+        opps.forEach((opp) => {
+          if (!matchMap.has(opp.id)) {
+            const deterministic = calculateDeterministicMatch(studentContext, opp)
+            matchMap.set(opp.id, {
+              id: `deterministic-${opp.id}`,
+              user_id: user.id,
+              opportunity_id: opp.id,
+              match_score: deterministic.match_score,
+              skill_match_score: deterministic.skill_match_score,
+              goal_match_score: deterministic.goal_match_score,
+              eligibility_location_score: deterministic.eligibility_location_score,
+              eligibility_status: deterministic.eligibility_status,
+              eligibility_notes: deterministic.eligibility_notes,
+              explanation: deterministic.explanation,
+              strengths: deterministic.strengths,
+              missing_skills: deterministic.missing_skills,
+              gaps: deterministic.gaps,
+              recommended_actions: deterministic.recommended_actions,
+              computed_at: new Date().toISOString(),
+            })
+          }
+        })
+
         setMatches(matchMap)
 
         // Cache Invalidation Check: filter out stale prep plans if student profile context has changed
@@ -190,6 +235,18 @@ export function OpportunitiesPage() {
           }
         })
         setPrepPlans(planMap)
+
+        // Build Opportunity Radar for Opportunities page embedded Radar view
+        const radar = buildOpportunityRadar({
+          studentContext,
+          opportunities: opps,
+          savedOpportunityIds: savedSet,
+          applications: appMap,
+          matches: matchMap,
+          prepPlans: planMap,
+          changeEvents,
+        })
+        setRadarResult(radar)
       } catch (err) {
         console.error("Failed loading opportunity data:", err)
         if (isMounted) {
@@ -204,7 +261,7 @@ export function OpportunitiesPage() {
     return () => {
       isMounted = false
     }
-  }, [user?.id])
+  }, [user?.id, targetOppId])
 
   async function handleRefresh() {
     if (!user?.id) return
@@ -250,6 +307,30 @@ export function OpportunitiesPage() {
           })
         }
       })
+
+      opps.forEach((opp) => {
+        if (!matchMap.has(opp.id)) {
+          const deterministic = calculateDeterministicMatch(studentContext, opp)
+          matchMap.set(opp.id, {
+            id: `deterministic-${opp.id}`,
+            user_id: user.id,
+            opportunity_id: opp.id,
+            match_score: deterministic.match_score,
+            skill_match_score: deterministic.skill_match_score,
+            goal_match_score: deterministic.goal_match_score,
+            eligibility_location_score: deterministic.eligibility_location_score,
+            eligibility_status: deterministic.eligibility_status,
+            eligibility_notes: deterministic.eligibility_notes,
+            explanation: deterministic.explanation,
+            strengths: deterministic.strengths,
+            missing_skills: deterministic.missing_skills,
+            gaps: deterministic.gaps,
+            recommended_actions: deterministic.recommended_actions,
+            computed_at: new Date().toISOString(),
+          })
+        }
+      })
+
       setMatches(matchMap)
 
       const planMap = new Map<string, OpportunityPrepPlanData>()
@@ -428,9 +509,19 @@ export function OpportunitiesPage() {
             Curated hackathons, fellowships, internships, competitions, and ambassador programs with 50/30/20 fit scoring.
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={handleRefresh} className="w-fit">
-          <RefreshCw className="size-3.5 mr-1.5" /> Refresh Catalog
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setActiveTab("radar")}
+            className="w-fit"
+          >
+            <Radio className="size-3.5 mr-1.5 text-primary-foreground animate-pulse" /> Launch Radar
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleRefresh} className="w-fit">
+            <RefreshCw className="size-3.5 mr-1.5" /> Refresh Catalog
+          </Button>
+        </div>
       </div>
 
       {errorMsg && (
@@ -502,6 +593,7 @@ export function OpportunitiesPage() {
       <div className="flex items-center gap-2 border-b border-border/80 pb-3 overflow-x-auto">
         {(
           [
+            { id: "radar", label: "Opportunity Radar" },
             { id: "catalog", label: `Catalog (${opportunities.length})` },
             { id: "saved", label: `Saved (${savedIds.size})` },
             { id: "applications", label: `Applications (${applications.size})` },
@@ -515,10 +607,42 @@ export function OpportunitiesPage() {
             onClick={() => setActiveTab(t.id)}
             className="text-xs font-semibold shrink-0"
           >
+            {t.id === "radar" && <Radio className="size-3.5 mr-1.5 text-primary animate-pulse" />}
             {t.label}
           </Button>
         ))}
       </div>
+
+      {/* TAB 0: RADAR VIEW */}
+      {activeTab === "radar" && (
+        <div className="space-y-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-primary/30 bg-primary/5 p-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Radio className="size-4 text-primary animate-pulse" />
+                <h3 className="font-semibold text-sm text-foreground">Deterministic Opportunity Radar</h3>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Actionable priority ranking derived from 50/30/20 fit score, deadline urgency, recency & prep status.
+              </p>
+            </div>
+            <Button asChild size="sm" variant="secondary" className="text-xs shrink-0 w-fit">
+              <Link to="/app/radar">
+                Full Page Radar <ExternalLink className="size-3 ml-1" />
+              </Link>
+            </Button>
+          </div>
+
+          {radarResult ? (
+            <RadarWidget radar={radarResult} />
+          ) : (
+            <div className="flex min-h-[30vh] items-center justify-center">
+              <Loader2 className="size-6 animate-spin text-primary mr-2" />
+              <span className="text-sm text-muted-foreground">Evaluating Radar Signals...</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB 1: CATALOG VIEW */}
       {activeTab === "catalog" && (

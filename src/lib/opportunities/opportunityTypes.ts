@@ -29,6 +29,17 @@ export interface Opportunity {
   source_platform: string
   deadline?: string | null
   application_open_date?: string | null
+  event_start_date?: string | null
+  event_end_date?: string | null
+  team_size_min?: number | null
+  team_size_max?: number | null
+  source_record_id?: string | null
+  registration_url?: string | null
+  content_hash?: string | null
+  first_seen_at?: string | null
+  last_ingested_at?: string | null
+  ingestion_status?: string | null
+  raw_metadata?: Record<string, unknown> | null
   status: OpportunityStatus
   verification_state: VerificationState
   last_verified_at: string

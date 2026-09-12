@@ -14,6 +14,10 @@ export interface DeterministicMatchResult {
   matched_skills: string[]
   missing_skills: string[]
   fingerprint: string
+  explanation: string
+  strengths: string[]
+  gaps: string[]
+  recommended_actions: string[]
 }
 
 export function computeStudentProfileFingerprint(student: StudentContextPayload): string {
@@ -37,7 +41,6 @@ export function calculateGoalMatch(
   ]
 
   if (goals.length === 0) {
-    // Insufficient goal information: return neutral score (50), do not fabricate match
     return 50
   }
 
@@ -71,7 +74,6 @@ export function calculateEligibilityAndLocation(
   status: EligibilityStatus
   notes: string
 } {
-  // 1. Location Scoring
   const oppLocation = (opportunity.location || "Remote").toLowerCase()
   const isRemote = oppLocation.includes("remote") || oppLocation.includes("global")
 
@@ -79,11 +81,9 @@ export function calculateEligibilityAndLocation(
   if (isRemote) {
     locationScore = 100
   } else if (student.semester) {
-    // Non-remote without specific student location match
     locationScore = 40
   }
 
-  // 2. Eligibility Scoring & Status
   const eligibilityList = opportunity.eligibility ?? []
   let status: EligibilityStatus
   let eligibilityScore: number
@@ -117,7 +117,6 @@ export function calculateEligibilityAndLocation(
     }
   }
 
-  // 3. Combined Eligibility + Location Score (60% Eligibility, 40% Location)
   const combinedScore = Math.round(eligibilityScore * 0.60 + locationScore * 0.40)
 
   return {
@@ -135,24 +134,23 @@ export function calculateDeterministicMatch(
 ): DeterministicMatchResult {
   const fingerprint = computeStudentProfileFingerprint(student)
 
-  // 1. Skill Match (50%)
   const { skillScore, matched, missing } = calculateSkillMatch(
     student.skills ?? [],
     opportunity.required_skills
   )
 
-  // 2. Goal Match (30%)
   const goalScore = calculateGoalMatch(student, opportunity)
-
-  // 3. Eligibility & Location Match (20%)
   const eligLoc = calculateEligibilityAndLocation(student, opportunity)
 
-  // 4. Exact Weighted Formula: Skill 50% + Goal 30% + EligLoc 20%
   const finalScore = Math.round(
     skillScore * 0.50 +
     goalScore * 0.30 +
     eligLoc.combinedScore * 0.20
   )
+
+  const strengths = matched.map((s) => `Matched skill: ${s}`)
+  const gaps = missing.map((s) => `Missing skill: ${s}`)
+  const explanation = `${finalScore}% match based on 50/30/20 scoring (${matched.length} matched skills: ${matched.join(", ") || "none"}). [fp:${fingerprint}]`
 
   return {
     match_score: Math.min(100, Math.max(0, finalScore)),
@@ -164,6 +162,10 @@ export function calculateDeterministicMatch(
     matched_skills: matched,
     missing_skills: missing,
     fingerprint,
+    explanation,
+    strengths,
+    gaps,
+    recommended_actions: gaps.length > 0 ? gaps.slice(0, 3) : ["Review deadline & apply"],
   }
 }
 
@@ -198,4 +200,3 @@ export function isPrepPlanStale(
   const freshFingerprint = computeStudentProfileFingerprint(currentStudent)
   return planData.student_fingerprint !== freshFingerprint
 }
-

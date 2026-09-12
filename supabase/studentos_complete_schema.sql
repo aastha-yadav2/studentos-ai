@@ -334,3 +334,56 @@ create policy "Users manage own prep plans" on public.opportunity_prep_plans for
 grant select on public.opportunities to authenticated;
 grant select, insert, update, delete on public.opportunity_matches, public.user_opportunity_saved, public.user_opportunity_applications, public.opportunity_prep_plans to authenticated;
 
+-- ── Phase 11A: Live Ingestion & Run Logging ─────────────────────────────────
+alter table public.opportunities add column if not exists source_record_id text;
+alter table public.opportunities add column if not exists registration_url text;
+alter table public.opportunities add column if not exists first_seen_at timestamptz default now();
+alter table public.opportunities add column if not exists last_ingested_at timestamptz default now();
+alter table public.opportunities add column if not exists ingestion_status text default 'active';
+alter table public.opportunities add column if not exists content_hash text;
+
+create index if not exists opportunities_source_platform_record_id_idx on public.opportunities (source_platform, source_record_id);
+create index if not exists opportunities_content_hash_idx on public.opportunities (content_hash);
+
+create table if not exists public.opportunity_ingestion_runs (
+  id uuid primary key default gen_random_uuid(),
+  source_platform text not null,
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  status text not null check (status in (
+    'success', 'partial_success', 'empty_success', 
+    'fetch_failed', 'parse_failed', 'validation_failed', 
+    'rate_limited', 'unsupported'
+  )),
+  fetched_count integer not null default 0,
+  normalized_count integer not null default 0,
+  accepted_count integer not null default 0,
+  duplicate_count integer not null default 0,
+  rejected_count integer not null default 0,
+  error_count integer not null default 0,
+  error_summary text,
+  metadata jsonb default '{}'::jsonb
+);
+
+create index if not exists opp_ingestion_runs_platform_status_idx on public.opportunity_ingestion_runs (source_platform, status, started_at desc);
+
+alter table public.opportunity_ingestion_runs enable row level security;
+create policy "Authenticated users can read ingestion runs" on public.opportunity_ingestion_runs for select to authenticated using (true);
+grant select on public.opportunity_ingestion_runs to authenticated;
+revoke all on public.opportunity_ingestion_runs from anon;
+
+-- ── Phase 11B: Concurrency Lock Table ─────────────────────────────────────────
+create table if not exists public.opportunity_ingestion_locks (
+  lock_name text primary key,
+  acquired_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '15 minutes'),
+  run_id text
+);
+
+alter table public.opportunity_ingestion_locks enable row level security;
+create policy "Authenticated users can read ingestion locks" on public.opportunity_ingestion_locks for select to authenticated using (true);
+grant select on public.opportunity_ingestion_locks to authenticated;
+revoke all on public.opportunity_ingestion_locks from anon;
+
+
+
