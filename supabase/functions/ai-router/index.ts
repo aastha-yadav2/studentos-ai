@@ -39,12 +39,13 @@ Deno.serve(async (request) => {
   console.info(JSON.stringify({ event: "ai_secret_loaded", requestType, secret: "GROQ_API_KEY" }))
 
   try {
-    const models = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"]
+    const models = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "mixtral-8x7b-32768"]
     let upstream: Response | undefined
     let upstreamBody: unknown
     let model = models[0]
 
-    for (const candidate of models) {
+    for (let i = 0; i < models.length; i++) {
+      const candidate = models[i]
       model = candidate
       console.info(JSON.stringify({ event: "groq_request", requestType, model }))
       upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -52,8 +53,8 @@ Deno.serve(async (request) => {
         body: JSON.stringify({ model, messages: [{ role: "system", content: `You are the StudentOS ${requestType.replaceAll("_", " ")} agent. Provide safe, practical, personalized help. Follow any output shape requested in the user payload. Return only JSON with one string property named content; content must contain the requested JSON or text.` }, { role: "user", content: JSON.stringify(payload) }], response_format: { type: "json_object" } })
       })
       upstreamBody = await upstream.json().catch(() => null)
-      if (upstream.ok || candidate === models[models.length - 1]) break
-      console.warn(JSON.stringify({ event: "groq_model_fallback", requestType, model, fallbackModel: models[1], status: upstream.status }))
+      if (upstream.ok || i === models.length - 1) break
+      console.warn(JSON.stringify({ event: "groq_model_fallback", requestType, model, fallbackModel: models[i + 1], status: upstream.status }))
     }
 
     if (!upstream) return error("groq", "Groq request failed.", 502)
