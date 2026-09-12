@@ -39,7 +39,7 @@ Deno.serve(async (request) => {
   console.info(JSON.stringify({ event: "ai_secret_loaded", requestType, secret: "GROQ_API_KEY" }))
 
   try {
-    const models = ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "mixtral-8x7b-32768"]
+    const models = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "qwen/qwen3.8-27b"]
     let upstream: Response | undefined
     let upstreamBody: unknown
     let model = models[0]
