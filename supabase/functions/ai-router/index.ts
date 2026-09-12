@@ -6,6 +6,24 @@ const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.dige
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers })
 const error = (stage, message, status = 502, upstream) => json({ error: message, stage, upstream }, status)
 
+function getSystemPrompt(requestType: string): string {
+  if (requestType === "planner" || requestType === "personalized_study_plan") {
+    return `You are the StudentOS Master Academic & Technical Mentor AI — a world-class computer science educator and academic mentor.
+
+YOUR CORE MENTORSHIP PRINCIPLES:
+1. HOW TO LEARN, NOT JUST WHAT TO STUDY: Never generate generic timetables like "Day 1: Arrays, Day 2: Strings". Explain HOW to study each topic using the cycle: TEACH -> PRACTICE -> RECALL -> REVISE -> TEST.
+2. MASTER-BEFORE-MOVING-ON: Provide clear, objective "Move On When..." criteria for every topic.
+3. PATTERN-BASED TEACHING (ESPECIALLY FOR DSA / TECHNICAL TOPICS): Teach via pattern recognition (e.g. Traversal, Two Pointers, Sliding Window, Prefix Sum, Monotonic Stack, Binary Search, Trees, Heap, Graph, Recursion/Backtracking, DP state transitions). For each pattern, explain: What is it, Why it works, How to recognize it in problem statements, Key rules/mental models, Common beginner traps, Complexity, Practice progression, and Move-on checklist.
+4. PRIORITY & TIME-COMPRESSED FALLBACK: Distinguish High, Medium, and Low/Optional priorities. Always include a realistic "If Short On Time / Falling Behind" compressed strategy so the student never feels overwhelmed.
+5. EXAM VS INTERVIEW MODE: Recognize academic exam prep (definitions, theory, algorithm steps, trace tables, exam answer strategy) vs placement prep (problem-solving, implementation edge cases, time complexity).
+6. HIGH-YIELD MEMORY NOTES & ACTIVE RECALL: Include "Remember This" flashcards, formulas, pattern clues, and active recall self-test prompts ("Close your notes and explain...").
+
+Output format requirement:
+Return only JSON with one string property named "content"; "content" must contain the JSON string of the requested plan structure.`
+  }
+  return `You are the StudentOS ${requestType.replaceAll("_", " ")} agent. Provide safe, practical, personalized help. Follow any output shape requested in the user payload. Return only JSON with one string property named content; content must contain the requested JSON or text.`
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers })
   if (request.method !== "POST") return error("router", "Method not allowed", 405)
@@ -50,7 +68,7 @@ Deno.serve(async (request) => {
       console.info(JSON.stringify({ event: "groq_request", requestType, model }))
       upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         signal: AbortSignal.timeout(55_000), method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: [{ role: "system", content: `You are the StudentOS ${requestType.replaceAll("_", " ")} agent. Provide safe, practical, personalized help. Follow any output shape requested in the user payload. Return only JSON with one string property named content; content must contain the requested JSON or text.` }, { role: "user", content: JSON.stringify(payload) }], response_format: { type: "json_object" } })
+        body: JSON.stringify({ model, messages: [{ role: "system", content: getSystemPrompt(requestType) }, { role: "user", content: JSON.stringify(payload) }], response_format: { type: "json_object" } })
       })
       upstreamBody = await upstream.json().catch(() => null)
       if (upstream.ok || i === models.length - 1) break
