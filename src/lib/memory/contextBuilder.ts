@@ -17,11 +17,11 @@ export async function buildAIContext(userId: string): Promise<AIContext> {
       []
     ),
     fallback(
-      plannerHistoryService.list(userId, 3).then((list) => list.map(({ plan: _, ...rest }) => rest as any)),
+      plannerHistoryService.list(userId, 3).then((list) => list.map((item) => { const r = { ...item }; delete (r as { plan?: unknown }).plan; return r })),
       []
     ),
     fallback(
-      plannerHistoryService.interactions(userId, 4).then((list) => list.map(({ content: _, ...rest }) => rest as any)),
+      plannerHistoryService.interactions(userId, 4).then((list) => list.map((item) => { const r = { ...item }; delete (r as { content?: unknown }).content; return r })),
       []
     ),
     fallback(preferenceLearningService.list(userId), []),

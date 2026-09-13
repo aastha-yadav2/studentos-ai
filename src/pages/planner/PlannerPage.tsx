@@ -10,18 +10,14 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  Circle,
   Clock3,
-  FileText,
   FolderKanban,
   Gauge,
   GraduationCap,
   HelpCircle,
-  Layers,
   Lightbulb,
   ListCheck,
   Loader2,
-  RotateCcw,
   ShieldAlert,
   Sparkles,
   Target,
@@ -29,41 +25,33 @@ import {
 } from "lucide-react"
 import { useAuth } from "@/auth/auth-provider"
 import { supabase, supabaseConfigError } from "@/lib/supabase"
-import { buildAIContext, buildCompactPlannerContext } from "@/lib/memory/contextBuilder"
+import { buildCompactPlannerContext } from "@/lib/memory/contextBuilder"
 import { plannerHistoryService } from "@/lib/memory/plannerHistoryService"
 import { preferenceLearningService } from "@/lib/memory/preferenceLearningService"
-import { adaptivePlanner } from "@/lib/adaptive/adaptivePlanner"
 import { requestAI } from "@/lib/ai/router-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 
-export type Priority = "High" | "Medium" | "Low"
+import { ActiveRecallSection } from "./ActiveRecallSection"
+import { GraphicalRoadmapView } from "./GraphicalRoadmapView"
+import {
+  normalizeActiveRecall,
+  normalizeRoadmap,
+  type ActiveRecallItem,
+  type DailyTaskItem,
+  type GraphicalRoadmap,
+  type Priority,
+  type RoadmapNode,
+  type RoadmapNodeStatus,
+  type TopicMasteryGuide,
+} from "./plannerNormalizer"
+
+export type { ActiveRecallItem, DailyTaskItem, GraphicalRoadmap, Priority, RoadmapNode, RoadmapNodeStatus, TopicMasteryGuide }
 
 export type PracticeProgressionItem = {
   level: "Easy" | "Medium" | "Hard" | "Exam Level"
   goal: string
-}
-
-export type TopicMasteryGuide = {
-  topic: string
-  category: "DSA Pattern" | "Theory & Concepts" | "Core Skill" | "Revision"
-  priority: Priority
-  what_is_it: string
-  why_it_works: string
-  how_to_recognize: string
-  remember_this: string[]
-  common_traps: string[]
-  complexity_notes?: string
-  practice_progression: PracticeProgressionItem[]
-  move_on_checklist: string[]
-}
-
-export type DailyTaskItem = {
-  action: string
-  type: "Teach/Learn" | "Practice" | "Recall" | "Revise" | "Test"
-  estimated_minutes: number
-  move_on_trigger?: string
 }
 
 export type OrchestratedPlan = {
@@ -85,6 +73,8 @@ export type OrchestratedPlan = {
     }[]
   }
   topic_mastery_guides?: TopicMasteryGuide[]
+  roadmap?: GraphicalRoadmap
+  active_recall?: ActiveRecallItem[]
   weekly_roadmap: {
     week: string
     outcome: string
@@ -169,42 +159,70 @@ function parsePlan(value: string): OrchestratedPlan | null {
     const raw = JSON.parse(value) as Record<string, unknown>
     if (!raw || typeof raw !== "object" || !raw.title) return null
 
+    const title = String(raw.title)
     const goalAnalysis = (raw.goal_analysis as Record<string, unknown>) || {}
-    const weeklyRoadmap = Array.isArray(raw.weekly_roadmap) ? raw.weekly_roadmap : []
+    const weeklyRoadmap = Array.isArray(raw.weekly_roadmap) ? (raw.weekly_roadmap as Record<string, unknown>[]) : []
     const dailyPlanRaw = Array.isArray(raw.daily_execution_plan) ? raw.daily_execution_plan : []
 
-    const dailyExecutionPlan = dailyPlanRaw.map((dayObj: any) => ({
-      day: String(dayObj.day || "Day"),
-      focus: String(dayObj.focus || "Daily Focus"),
-      tasks: normalizeTasks(dayObj.tasks),
-      estimated_hours: Number(dayObj.estimated_hours) || 2,
-    }))
+    const dailyExecutionPlan = dailyPlanRaw.map((dayObj: unknown) => {
+      const rec = typeof dayObj === "object" && dayObj !== null ? (dayObj as Record<string, unknown>) : {}
+      return {
+        day: String(rec.day || "Day"),
+        focus: String(rec.focus || "Daily Focus"),
+        tasks: normalizeTasks(rec.tasks),
+        estimated_hours: Number(rec.estimated_hours) || 2,
+      }
+    })
 
-    const topicMastery = Array.isArray(raw.topic_mastery_guides)
-      ? raw.topic_mastery_guides.map((tg: any) => ({
-          topic: String(tg.topic || "Core Topic"),
-          category: tg.category || "DSA Pattern",
-          priority: (tg.priority as Priority) || "High",
-          what_is_it: String(tg.what_is_it || ""),
-          why_it_works: String(tg.why_it_works || ""),
-          how_to_recognize: String(tg.how_to_recognize || ""),
-          remember_this: Array.isArray(tg.remember_this) ? tg.remember_this.map(String) : [],
-          common_traps: Array.isArray(tg.common_traps) ? tg.common_traps.map(String) : [],
-          complexity_notes: tg.complexity_notes ? String(tg.complexity_notes) : undefined,
-          practice_progression: Array.isArray(tg.practice_progression)
-            ? tg.practice_progression.map((p: any) => ({ level: p.level || "Medium", goal: String(p.goal || "") }))
-            : [],
-          move_on_checklist: Array.isArray(tg.move_on_checklist) ? tg.move_on_checklist.map(String) : [],
-        }))
+    const topicMastery: TopicMasteryGuide[] | undefined = Array.isArray(raw.topic_mastery_guides)
+      ? raw.topic_mastery_guides.map((tg: unknown) => {
+          const rec = typeof tg === "object" && tg !== null ? (tg as Record<string, unknown>) : {}
+          return {
+            topic: String(rec.topic || "Core Topic"),
+            category: (rec.category as TopicMasteryGuide["category"]) || "DSA Pattern",
+            priority: (rec.priority as Priority) || "High",
+            what_is_it: String(rec.what_is_it || ""),
+            why_it_works: String(rec.why_it_works || ""),
+            how_to_recognize: String(rec.how_to_recognize || ""),
+            remember_this: Array.isArray(rec.remember_this) ? rec.remember_this.map(String) : [],
+            common_traps: Array.isArray(rec.common_traps) ? rec.common_traps.map(String) : [],
+            complexity_notes: rec.complexity_notes ? String(rec.complexity_notes) : undefined,
+            practice_progression: Array.isArray(rec.practice_progression)
+              ? rec.practice_progression.map((p: unknown) => {
+                  const pRec = typeof p === "object" && p !== null ? (p as Record<string, unknown>) : {}
+                  return {
+                    level: (pRec.level as PracticeProgressionItem["level"]) || "Medium",
+                    goal: String(pRec.goal || ""),
+                  }
+                })
+              : [],
+            move_on_checklist: Array.isArray(rec.move_on_checklist) ? rec.move_on_checklist.map(String) : [],
+          }
+        })
       : undefined
 
+    const rememberNotes = Array.isArray(raw.remember_this_notes)
+      ? (raw.remember_this_notes as { topic: string; key_takeaway: string; active_recall_prompt: string }[])
+      : undefined
+
+    const parsedWeeklyRoadmap = weeklyRoadmap.map((w) => ({
+      week: String(w.week || "Week"),
+      outcome: String(w.outcome || "Milestone"),
+      deliverables: Array.isArray(w.deliverables) ? w.deliverables.map(String) : [],
+      estimated_hours: Number(w.estimated_hours) || 4,
+      move_on_checklist: Array.isArray(w.move_on_checklist) ? w.move_on_checklist.map(String) : undefined,
+    }))
+
+    const activeRecall = normalizeActiveRecall(raw.active_recall, topicMastery, rememberNotes)
+    const roadmap = normalizeRoadmap(raw.roadmap, title, topicMastery, parsedWeeklyRoadmap)
+
     return {
-      title: String(raw.title),
+      title,
       goal_analysis: {
         objective: String(goalAnalysis.objective || "Target Goal"),
         scope: String(goalAnalysis.scope || "Plan Scope"),
-        preparation_mode: (goalAnalysis.preparation_mode as any) || "Exam Mode (Theory + Dry Runs)",
-        yield_strategy: (goalAnalysis.yield_strategy as any) || {
+        preparation_mode: (goalAnalysis.preparation_mode as OrchestratedPlan["goal_analysis"]["preparation_mode"]) || "Exam Mode (Theory + Dry Runs)",
+        yield_strategy: (goalAnalysis.yield_strategy as OrchestratedPlan["goal_analysis"]["yield_strategy"]) || {
           high_priority_focus: "Focus on high-yield core concepts & top exam patterns first",
           medium_priority_focus: "Secondary topics after mastering high-priority fundamentals",
           low_priority_optional: "Optional/Advanced topics only if main syllabus is complete",
@@ -214,25 +232,27 @@ function parsePlan(value: string): OrchestratedPlan | null {
             "If short on time, skip edge case variations and master the top 3 high-yield patterns first."
         ),
         module_coordination: Array.isArray(goalAnalysis.module_coordination)
-          ? goalAnalysis.module_coordination
+          ? (goalAnalysis.module_coordination as OrchestratedPlan["goal_analysis"]["module_coordination"])
           : [
               { module: "Study", role: "Primary concept learning & practice", priority: "High" },
               { module: "Productivity", role: "Daily task tracking and recall review", priority: "High" },
             ],
       },
       topic_mastery_guides: topicMastery,
-      weekly_roadmap: weeklyRoadmap as any,
+      roadmap,
+      active_recall: activeRecall,
+      weekly_roadmap: parsedWeeklyRoadmap,
       daily_execution_plan: dailyExecutionPlan,
-      priority_matrix: Array.isArray(raw.priority_matrix) ? (raw.priority_matrix as any) : [],
-      remember_this_notes: Array.isArray(raw.remember_this_notes) ? (raw.remember_this_notes as any) : undefined,
+      priority_matrix: Array.isArray(raw.priority_matrix) ? (raw.priority_matrix as OrchestratedPlan["priority_matrix"]) : [],
+      remember_this_notes: rememberNotes,
       common_mistakes_to_avoid: Array.isArray(raw.common_mistakes_to_avoid)
         ? raw.common_mistakes_to_avoid.map(String)
         : undefined,
-      backup_plan_if_behind: (raw.backup_plan_if_behind as any) || undefined,
-      estimated_effort: (raw.estimated_effort as any) || { total_hours: 20, weekly_hours: 10, allocation: [] },
-      risks_and_blockers: Array.isArray(raw.risks_and_blockers) ? (raw.risks_and_blockers as any) : [],
-      success_metrics: Array.isArray(raw.success_metrics) ? (raw.success_metrics as any) : [],
-      ai_reasoning: (raw.ai_reasoning as any) || { rationale: "Optimized for maximum retention and exam readiness", tradeoffs: [], assumptions: [] },
+      backup_plan_if_behind: (raw.backup_plan_if_behind as OrchestratedPlan["backup_plan_if_behind"]) || undefined,
+      estimated_effort: (raw.estimated_effort as OrchestratedPlan["estimated_effort"]) || { total_hours: 20, weekly_hours: 10, allocation: [] },
+      risks_and_blockers: Array.isArray(raw.risks_and_blockers) ? (raw.risks_and_blockers as OrchestratedPlan["risks_and_blockers"]) : [],
+      success_metrics: Array.isArray(raw.success_metrics) ? (raw.success_metrics as OrchestratedPlan["success_metrics"]) : [],
+      ai_reasoning: (raw.ai_reasoning as OrchestratedPlan["ai_reasoning"]) || { rationale: "Optimized for maximum retention and exam readiness", tradeoffs: [], assumptions: [] },
       recommendations: Array.isArray(raw.recommendations) ? raw.recommendations.map(String) : [],
     }
   } catch {
@@ -284,12 +304,14 @@ export function PlannerPage() {
       setStage("Crafting mentor-grade preparation & pattern mastery plan...")
 
       const result = await requestAI<{ content: string }>(session, "planner", {
+        schema_version: "v2_roadmap_recall",
         goal: goal.trim(),
         goalType: type,
         timeframe,
         weeklyHours: Number(hours) || 10,
         workspaceContext: context,
-        instruction: "Return JSON plan: title, goal_analysis, topic_mastery_guides, weekly_roadmap, daily_execution_plan, remember_this_notes, common_mistakes_to_avoid, backup_plan_if_behind, priority_matrix, estimated_effort, risks_and_blockers, success_metrics, ai_reasoning, recommendations.",
+        instruction:
+          "Return JSON plan with: title, goal_analysis, topic_mastery_guides, roadmap (object with title and nodes: id, title, description, priority, status, prerequisites, estimated_hours, mastery_criteria), active_recall (array of objects: topic, question, priority, answer_hint), weekly_roadmap, daily_execution_plan, remember_this_notes, common_mistakes_to_avoid, backup_plan_if_behind, priority_matrix, estimated_effort, risks_and_blockers, success_metrics, ai_reasoning, recommendations.",
       })
 
       setResponse(result.data.content)
@@ -558,6 +580,43 @@ function PlanDashboard({ plan, userId }: { plan: OrchestratedPlan; userId?: stri
   const [converting, setConverting] = useState(false)
   const [conversionSuccess, setConversionSuccess] = useState<string | null>(null)
 
+  async function convertSingleNodeToTask(node: RoadmapNode) {
+    if (!supabase || !userId) return
+    setConverting(true)
+    setConversionSuccess(null)
+
+    try {
+      const dueDate = new Date()
+      dueDate.setDate(dueDate.getDate() + 2)
+      dueDate.setHours(18, 0, 0, 0)
+
+      const newTask = {
+        user_id: userId,
+        title: `[Roadmap Stage] ${node.title}`,
+        due_at: dueDate.toISOString(),
+        priority: node.priority || "High",
+        estimated_hours: node.estimated_hours || 3,
+        status: "todo",
+      }
+
+      const { error } = await supabase.from("student_tasks").insert([newTask])
+      if (error) throw error
+
+      await supabase.from("activity_events").insert({
+        user_id: userId,
+        event_type: "planner_topic_task_created",
+        description: `Created StudentOS task for roadmap node: ${node.title}`,
+      })
+
+      setConversionSuccess(`Created task "${node.title}" in your StudentOS Tasks list!`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("Single topic task conversion failed:", msg)
+    } finally {
+      setConverting(false)
+    }
+  }
+
   async function convertPlanToTasks() {
     if (!supabase || !userId) return
     setConverting(true)
@@ -565,7 +624,7 @@ function PlanDashboard({ plan, userId }: { plan: OrchestratedPlan; userId?: stri
 
     try {
       const now = new Date()
-      const newTasks: any[] = []
+      const newTasks: Record<string, unknown>[] = []
 
       plan.daily_execution_plan.forEach((dayItem, dayIdx) => {
         const dueDate = new Date(now)
@@ -573,10 +632,8 @@ function PlanDashboard({ plan, userId }: { plan: OrchestratedPlan; userId?: stri
         dueDate.setHours(18, 0, 0, 0)
 
         dayItem.tasks.forEach((task) => {
-          let priority: Priority = "Medium"
-          if (task.type === "Test" || task.type === "Practice") priority = "High"
-          else if (task.type === "Revise") priority = "Medium"
-          else priority = "Low"
+          const priority: Priority =
+            task.type === "Test" || task.type === "Practice" ? "High" : task.type === "Revise" ? "Medium" : "Low"
 
           newTasks.push({
             user_id: userId,
@@ -601,8 +658,9 @@ function PlanDashboard({ plan, userId }: { plan: OrchestratedPlan; userId?: stri
 
         setConversionSuccess(`Successfully added ${newTasks.length} tasks to your StudentOS Tasks execution list!`)
       }
-    } catch (err: any) {
-      console.error("Task conversion failed:", err.message)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("Task conversion failed:", msg)
     } finally {
       setConverting(false)
     }
@@ -991,8 +1049,10 @@ function PlanDashboard({ plan, userId }: { plan: OrchestratedPlan; userId?: stri
       {/* TAB 4: ACTIVE RECALL & NOTES */}
       {activeTab === "recall" && (
         <div className="space-y-6">
+          <ActiveRecallSection items={plan.active_recall || []} planTitle={plan.title} />
+
           {plan.remember_this_notes && plan.remember_this_notes.length > 0 && (
-            <DashboardSection title="High-Yield Flashcard Notes & Active Recall" icon={<Zap />}>
+            <DashboardSection title="High-Yield Flashcard Notes" icon={<Zap />}>
               <div className="grid gap-4 md:grid-cols-2">
                 {plan.remember_this_notes.map((note, nIdx) => (
                   <div key={nIdx} className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
@@ -1027,39 +1087,46 @@ function PlanDashboard({ plan, userId }: { plan: OrchestratedPlan; userId?: stri
         </div>
       )}
 
-      {/* TAB 5: ROADMAP & BACKUP PLAN */}
+      {/* TAB 5: GRAPHICAL ROADMAP & BACKUP PLAN */}
       {activeTab === "roadmap" && (
         <div className="space-y-6">
-          <DashboardSection title="Weekly Roadmap & Deliverables" icon={<CalendarDays />}>
-            {plan.weekly_roadmap.map((week) => (
-              <div key={week.week} className="rounded-2xl border border-border bg-muted/15 p-4 space-y-3">
-                <div className="flex justify-between gap-3">
-                  <p className="font-medium text-foreground">{week.week}</p>
-                  <span className="text-sm font-medium text-primary">{week.estimated_hours}h</span>
-                </div>
-                <p className="text-sm text-muted-foreground">{week.outcome}</p>
-                <ul className="space-y-1.5 text-sm">
-                  {week.deliverables.map((item) => (
-                    <li key={item} className="flex gap-2">
-                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+          <GraphicalRoadmapView
+            roadmap={plan.roadmap || { title: `${plan.title} Learning Roadmap`, nodes: [] }}
+            onConvertTopicToTask={convertSingleNodeToTask}
+          />
 
-                {week.move_on_checklist && week.move_on_checklist.length > 0 && (
-                  <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs">
-                    <p className="font-semibold text-primary">Week Checkpoint:</p>
-                    <ul className="mt-1 space-y-1 text-muted-foreground">
-                      {week.move_on_checklist.map((chk, cIdx) => (
-                        <li key={cIdx}>• {chk}</li>
-                      ))}
-                    </ul>
+          {plan.weekly_roadmap && plan.weekly_roadmap.length > 0 && (
+            <DashboardSection title="Weekly Execution Milestones" icon={<CalendarDays />}>
+              {plan.weekly_roadmap.map((week) => (
+                <div key={week.week} className="rounded-2xl border border-border bg-muted/15 p-4 space-y-3">
+                  <div className="flex justify-between gap-3">
+                    <p className="font-medium text-foreground">{week.week}</p>
+                    <span className="text-sm font-medium text-primary">{week.estimated_hours}h</span>
                   </div>
-                )}
-              </div>
-            ))}
-          </DashboardSection>
+                  <p className="text-sm text-muted-foreground">{week.outcome}</p>
+                  <ul className="space-y-1.5 text-sm">
+                    {week.deliverables.map((item) => (
+                      <li key={item} className="flex gap-2">
+                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+
+                  {week.move_on_checklist && week.move_on_checklist.length > 0 && (
+                    <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs">
+                      <p className="font-semibold text-primary">Week Checkpoint:</p>
+                      <ul className="mt-1 space-y-1 text-muted-foreground">
+                        {week.move_on_checklist.map((chk, cIdx) => (
+                          <li key={cIdx}>• {chk}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </DashboardSection>
+          )}
 
           {plan.backup_plan_if_behind && (
             <Card className="border-rose-500/20 bg-rose-500/5">
