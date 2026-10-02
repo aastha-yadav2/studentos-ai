@@ -236,6 +236,156 @@ Return JSON with this EXACT structure:
   }
 }
 
+export type QAIntent = "READINESS" | "DOCUMENTS" | "SKILLS" | "TWO_WEEK_PREPARATION" | "GENERAL"
+
+export function classifyQuestionIntent(question: string): QAIntent {
+  const q = question.toLowerCase().trim()
+  if (
+    q.includes("ready") ||
+    q.includes("can i apply") ||
+    q.includes("should i apply") ||
+    q.includes("qualify") ||
+    q.includes("chance")
+  ) {
+    return "READINESS"
+  }
+  if (
+    q.includes("document") ||
+    q.includes("file") ||
+    q.includes("pdf") ||
+    q.includes("transcript") ||
+    q.includes("resume") ||
+    q.includes("portfolio") ||
+    q.includes("submission material") ||
+    q.includes("what to submit") ||
+    q.includes("what should i prepare for the application")
+  ) {
+    return "DOCUMENTS"
+  }
+  if (
+    q.includes("skill") ||
+    q.includes("missing") ||
+    q.includes("technolog") ||
+    q.includes("language") ||
+    q.includes("prerequisite")
+  ) {
+    return "SKILLS"
+  }
+  if (
+    q.includes("2 week") ||
+    q.includes("two week") ||
+    q.includes("14 day") ||
+    q.includes("fourteen day") ||
+    q.includes("prepare over") ||
+    q.includes("before applying") ||
+    q.includes("prep schedule")
+  ) {
+    return "TWO_WEEK_PREPARATION"
+  }
+  return "GENERAL"
+}
+
+const OTHER_OPPORTUNITY_TERMS = [
+  "hackerearth",
+  "google summer of code",
+  "gsoc",
+  "mlh fellowship",
+  "major league hacking",
+  "imagine cup",
+  "gdsc solution challenge",
+  "outreachy",
+  "meta university",
+  "github campus",
+  "ethereum foundation",
+  "smart india hackathon",
+  "sih",
+]
+
+export function validateQAResponse(answer: string, opportunity: Opportunity): boolean {
+  if (!answer || typeof answer !== "string") return false
+  const lowerAnswer = answer.toLowerCase()
+  const lowerCurrentTitle = opportunity.title.toLowerCase()
+  const lowerCurrentOrg = opportunity.organization.toLowerCase()
+
+  for (const term of OTHER_OPPORTUNITY_TERMS) {
+    if (lowerAnswer.includes(term)) {
+      if (!lowerCurrentTitle.includes(term) && !lowerCurrentOrg.includes(term)) {
+        console.warn(`Anti-leakage validation failed: answer mentioned '${term}' while viewing '${opportunity.title}'`)
+        return false
+      }
+    }
+  }
+  return true
+}
+
+export function generateDeterministicQAAnswer({
+  intent,
+  opportunity,
+  sanityKnowledge,
+  intelligenceResult,
+}: {
+  intent: QAIntent
+  opportunity: Opportunity
+  sanityKnowledge: SanityOpportunityKnowledge | null
+  intelligenceResult: OpportunityIntelligenceResult
+}): { answer: string; suggestedActions: string[] } {
+  const title = opportunity.title
+  const org = opportunity.organization
+  const documents = sanityKnowledge?.applicationProcess?.documents ?? intelligenceResult.applicationPlan.documents
+  const matchedSkills = intelligenceResult.skillMatch.matched
+  const missingSkills = intelligenceResult.skillMatch.gaps
+  const steps = sanityKnowledge?.applicationProcess?.steps ?? intelligenceResult.applicationPlan.steps
+  const fitScore = intelligenceResult.verdict
+  const eligibilityStatus = intelligenceResult.eligibility.status
+
+  switch (intent) {
+    case "READINESS": {
+      const statusText = eligibilityStatus === "eligible" ? "Satisfied" : eligibilityStatus === "not_eligible" ? "Not Eligible (Blockers exist)" : "Needs Review"
+      return {
+        answer: `Readiness Assessment for ${title} at ${org}: ${fitScore} Eligibility status is currently ${statusText}. Your profile matches ${matchedSkills.length} required skill(s) with ${missingSkills.length} gap(s).`,
+        suggestedActions: ["Check eligibility details", "Review matched skills"],
+      }
+    }
+    case "DOCUMENTS": {
+      const docListStr = documents.length > 0 ? documents.join(", ") : "Resume/CV, GitHub Portfolio, and Application Form"
+      return {
+        answer: `Based on the verified knowledge graph for ${title} (${org}), the required application documents and submission materials are: ${docListStr}.`,
+        suggestedActions: ["Prepare PDF portfolio", "Verify submission portal"],
+      }
+    }
+    case "SKILLS": {
+      const matchedStr = matchedSkills.length > 0 ? matchedSkills.join(", ") : "None currently in profile"
+      const missingStr = missingSkills.length > 0 ? missingSkills.join(", ") : "All required skills satisfied!"
+      return {
+        answer: `Skill Fit Analysis for ${title}: Matched Skills: [${matchedStr}]. Priority Gaps to Learn: [${missingStr}]. Required Stack: ${opportunity.required_skills.join(", ")}.`,
+        suggestedActions: ["Focus on priority missing skills", "Build prototype project"],
+      }
+    }
+    case "TWO_WEEK_PREPARATION": {
+      const prioritySkill = missingSkills[0] ?? opportunity.required_skills[0] ?? "Core stack"
+      const secondSkill = missingSkills[1] ?? opportunity.required_skills[1] ?? "System architecture"
+      const topDoc = documents[0] ?? "Resume & Code Sample"
+      return {
+        answer: `14-Day Preparation Roadmap for ${title} (${org}):
+• Days 1–3: Master core fundamentals and practice hands-on exercises for ${prioritySkill}.
+• Days 4–6: Build a mini prototype or portfolio project incorporating ${secondSkill}.
+• Days 7–9: Refine code samples and polish repository README documentation.
+• Days 10–12: Gather required documents (${topDoc}) and draft your application statement.
+• Days 13–14: Perform final eligibility check, review submission guidelines, and submit via the official portal (${opportunity.source_platform}).`,
+        suggestedActions: ["Start Day 1 skill review", "Prepare application materials"],
+      }
+    }
+    case "GENERAL":
+    default: {
+      const appStep = steps[0] ?? "Review official documentation and eligibility guidelines."
+      return {
+        answer: `Regarding ${title} at ${org}: Ensure you satisfy the required skills (${opportunity.required_skills.join(", ")}) and follow step 1: "${appStep}". Official source: ${opportunity.source_url || "Program Website"}.`,
+        suggestedActions: ["Review required skills", "Check official application portal"],
+      }
+    }
+  }
+}
+
 export async function askOpportunityFollowUp({
   session,
   opportunity,
@@ -251,16 +401,22 @@ export async function askOpportunityFollowUp({
   intelligenceResult: OpportunityIntelligenceResult
   question: string
 }): Promise<{ answer: string; suggestedActions?: string[] }> {
+  const intent = classifyQuestionIntent(question)
+
   const payload = {
     question,
+    intent,
     opportunity: {
+      id: opportunity.id,
       title: opportunity.title,
       organization: opportunity.organization,
       type: opportunity.type,
       description: opportunity.description,
+      required_skills: opportunity.required_skills,
     },
     sanity_knowledge: sanityKnowledge
       ? {
+          organization: sanityKnowledge.organization?.name,
           eligibility: sanityKnowledge.eligibility?.map((e) => e.description),
           application_steps: sanityKnowledge.applicationProcess?.steps,
           documents: sanityKnowledge.applicationProcess?.documents,
@@ -276,21 +432,33 @@ export async function askOpportunityFollowUp({
     matched_skills: intelligenceResult.skillMatch.matched,
     missing_skills: intelligenceResult.skillMatch.gaps,
     instructions:
-      "Answer the student's question directly, accurately, and grounded strictly in the provided opportunity knowledge and student profile. Return JSON: { answer: string, suggestedActions: string[] }",
+      `Answer the student's question directly, accurately, and grounded STRICTLY in the provided opportunity knowledge for "${opportunity.title}". Do NOT mention any other opportunity. Intent: ${intent}. Return JSON: { answer: string, suggestedActions: string[] }`,
   }
+
+  const fallback = generateDeterministicQAAnswer({
+    intent,
+    opportunity,
+    sanityKnowledge,
+    intelligenceResult,
+  })
 
   try {
     const aiRes = await requestAI<RawAIResponse>(session, "opportunity_qa", payload)
     const parsed = JSON.parse(aiRes.data.content)
-    return {
-      answer: parsed.answer || "Based on the structured opportunity knowledge, make sure your application highlights your relevant skills and meets all published deadlines.",
-      suggestedActions: Array.isArray(parsed.suggestedActions) ? parsed.suggestedActions : [],
+    const aiAnswer = typeof parsed.answer === "string" ? parsed.answer.trim() : ""
+
+    if (aiAnswer && validateQAResponse(aiAnswer, opportunity)) {
+      return {
+        answer: aiAnswer,
+        suggestedActions: Array.isArray(parsed.suggestedActions) && parsed.suggestedActions.length > 0
+          ? parsed.suggestedActions
+          : fallback.suggestedActions,
+      }
     }
+    console.warn("AI Q&A response validation failed or returned empty answer, returning intent-specific fallback.")
+    return fallback
   } catch (error) {
-    console.warn("Grounded follow-up Q&A AI request offline, returning deterministic answer:", error)
-    return {
-      answer: `Regarding "${question}": For ${opportunity.title} at ${opportunity.organization}, ensure you meet the required skills (${opportunity.required_skills.join(", ")}) and complete all application steps outlined in the readiness plan.`,
-      suggestedActions: ["Review required skills", "Check official application portal"],
-    }
+    console.warn("Grounded follow-up Q&A AI request offline/failed, returning intent-specific fallback:", error)
+    return fallback
   }
 }

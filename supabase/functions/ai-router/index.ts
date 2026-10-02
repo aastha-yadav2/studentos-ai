@@ -19,6 +19,8 @@ const allowed = new Set([
   "communication_draft",
   "opportunity_match",
   "opportunity_prep_plan",
+  "opportunity_intelligence",
+  "opportunity_qa",
 ])
 
 const hash = async (value: unknown) =>
@@ -96,6 +98,17 @@ CRITICAL FORMATTING INSTRUCTIONS:
 - Do NOT add any preamble, conversational text, explanations, or notes before or after the JSON.
 - Ensure all keys and string values use double quotes, arrays are arrays, and there are no trailing commas.
 - Never output undefined, NaN, comments, or JavaScript objects.`
+  }
+  if (requestType === "opportunity_qa") {
+    return `You are the StudentOS Grounded Opportunity Intelligence Q&A Agent.
+Answer ONLY about the selected opportunity provided in the payload.
+STRICT RULES:
+1. Do NOT mention any other opportunity, organization, or program not present in the payload.
+2. Answer MUST be tailored specifically to the user's intent (READINESS, DOCUMENTS, SKILLS, TWO_WEEK_PREPARATION, or GENERAL).
+3. For TWO_WEEK_PREPARATION intent, generate a practical 14-day chronological schedule based strictly on the selected opportunity's missing skills, required documents, and application steps. Do NOT invent fake submission deadlines.
+4. If the provided knowledge graph does not contain the requested information, explicitly state: "The available opportunity knowledge graph does not specify this detail."
+5. Return JSON: { "answer": "string", "suggestedActions": ["string"] }
+Return ONLY a valid JSON object. Do NOT use markdown fences or conversational text.`
   }
   return `You are the StudentOS ${requestType.replaceAll("_", " ")} agent. Provide safe, practical, personalized help. Follow any output shape requested in the user payload. Return ONLY a valid JSON object. Do NOT use markdown fences or conversational text.`
 }

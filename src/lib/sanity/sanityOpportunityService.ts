@@ -247,6 +247,13 @@ export async function getSanityOpportunityKnowledge(
   const normId = opportunityIdOrSlug.trim()
   const normTitle = opportunityTitle?.trim().toLowerCase()
 
+  if (import.meta.env.DEV) {
+    console.info(`[Sanity Knowledge Lookup] Requested ID/Slug: "${normId}", Title: "${opportunityTitle ?? 'N/A'}"`, {
+      projectId,
+      dataset,
+    })
+  }
+
   // 1. Try querying Sanity if configured
   if (sanityClient) {
     try {
@@ -268,19 +275,37 @@ export async function getSanityOpportunityKnowledge(
             normTitle.includes(data.title.toLowerCase().trim())
           : true
 
-        if (matchesId || matchesTitle) {
+        const isValidIdentity = matchesId || matchesTitle
+
+        if (import.meta.env.DEV) {
+          console.info(`[Sanity GROQ Query] Success (200 OK). Returned Document ID: "${data._id}", Title: "${data.title}". Identity Validation: ${isValidIdentity ? 'PASSED' : 'FAILED'}`)
+        }
+
+        if (isValidIdentity) {
           return {
             ...data,
             isFallback: false,
           }
         } else {
-          console.warn(
-            `[Identity Validation] Rejected mismatched Sanity document. Requested "${normId}" ("${opportunityTitle}"), but Sanity returned "${data._id}" ("${data.title}").`
-          )
+          if (import.meta.env.DEV) {
+            console.warn(
+              `[Identity Validation] Rejected returned Sanity document. Requested "${normId}" ("${opportunityTitle}"), but Sanity returned "${data._id}" ("${data.title}"). Reason: Identity mismatch.`
+            )
+          }
+        }
+      } else {
+        if (import.meta.env.DEV) {
+          console.info(`[Sanity GROQ Query] No document returned for "${normId}" ("${opportunityTitle}") in dataset "${dataset}".`)
         }
       }
     } catch (err) {
-      console.warn("Sanity GROQ fetch failed, falling back to opportunity-specific fallback knowledge:", err)
+      if (import.meta.env.DEV) {
+        console.warn("Sanity GROQ fetch failed, using opportunity-specific fallback knowledge:", err)
+      }
+    }
+  } else {
+    if (import.meta.env.DEV) {
+      console.info(`[Sanity Client Unconfigured] VITE_SANITY_PROJECT_ID is not set. Using fallback.`)
     }
   }
 
@@ -294,6 +319,9 @@ export async function getSanityOpportunityKnowledge(
     )
 
   if (staticFallback) {
+    if (import.meta.env.DEV) {
+      console.info(`[Sanity Fallback] Using matching static fallback for "${normId}" ("${staticFallback.title}").`)
+    }
     return {
       ...staticFallback,
       isFallback: true,
@@ -302,6 +330,9 @@ export async function getSanityOpportunityKnowledge(
 
   // 3. Dynamic generic fallback constructed STRICTLY from the selected opportunity's metadata
   if (opportunityObj) {
+    if (import.meta.env.DEV) {
+      console.info(`[Sanity Fallback] Generating generic fallback for "${opportunityObj.id}" ("${opportunityObj.title}").`)
+    }
     return generateGenericOpportunityFallback(opportunityObj)
   }
 
