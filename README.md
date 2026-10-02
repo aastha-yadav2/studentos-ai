@@ -48,8 +48,38 @@ React + Vite UI
   └─ Supabase Edge Functions ───── secure AI boundary
        └─ OpenAI API ───────────── planner, study, career, goal advice
 
-Frontend services: Planner | Memory | Reflection | Career | Study
+Frontend services: Planner | Memory | Reflection | Career | Study | Sanity Opportunity Intelligence
+
+### Sanity Opportunity Knowledge Layer Architecture
+
+```mermaid
+flowchart TD
+  SupabaseDB[Supabase Postgres] -->|Private Student Context| DetMatch[Deterministic Matcher 50/30/20]
+  SanityCloud[Sanity Cloud / Studio] -->|Curated Program Knowledge| DetMatch
+  SanityCloud -->|GROQ Knowledge Graph| AIRouter[Existing AI Router]
+  DetMatch -->|Hard Eligibility & Scores| AIRouter
+  AIRouter -->|Qualitative Reasoning| OppUI[Opportunity Intelligence UI]
 ```
+
+```text
+Supabase DB (Private Student Context)
+    ↓
+Sanity Cloud Knowledge Graph (Curated Program Knowledge)
+    ↓
+Existing Deterministic Matcher (Hard Eligibility Authority & 50/30/20 Fit)
+    ↓
+Existing AI Router (Qualitative Rationale & Grounded Q&A)
+    ↓
+Opportunity Intelligence Drawer & Q&A Agent
+```
+
+- **Why Sanity is used**: Stores curated, structured program knowledge (organizations, eligibility rules, skills, application processes, resources, sources).
+- **Supabase vs Sanity**: Supabase holds private student profile context and application state; Sanity holds public opportunity knowledge graphs. Private student data is never sent to Sanity.
+- **Deterministic Matcher**: Authoritative 50/30/20 fit calculation and hard eligibility verification. The AI Router cannot override hard eligibility bounds.
+- **AI Router**: Generates qualitative rationale, gap analysis, preparation roadmaps, and grounded follow-up Q&A.
+- **GROQ Knowledge Retrieval**: Centralized query dereferencing organization, eligibility rules, required skills, application processes, resources, and source verification.
+- **Resilient Fallback**: Gracefully falls back to `SANITY_FALLBACK_KNOWLEDGE` (`isFallback: true`) if Sanity Cloud is unavailable.
+- **Environment Variables**: Requires `VITE_SANITY_PROJECT_ID` and `VITE_SANITY_DATASET`. Public read access only — no write tokens in the frontend.```
 
 The browser reads and writes only the signed-in user’s data through RLS. AI requests include a compact, relevant workspace context and are sent to Edge Functions; the OpenAI key remains server-side. Reflection services derive analytics from tasks and goals, persist their evidence, then feed it back into the Planner.
 

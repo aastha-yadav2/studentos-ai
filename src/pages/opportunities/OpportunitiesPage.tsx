@@ -43,6 +43,7 @@ import {
   computeOpportunityMatch,
   generateOpportunityPrepPlan,
   type ComprehensiveMatchResult,
+  type StudentContextPayload,
 } from "@/lib/opportunities/opportunityAIService"
 import {
   calculateDeterministicMatch,
@@ -51,6 +52,13 @@ import {
 } from "@/lib/opportunities/deterministicMatcher"
 import { buildOpportunityRadar } from "@/lib/opportunities/radar/radarService"
 import { RadarWidget } from "@/components/radar/RadarWidget"
+import { OpportunityIntelligenceDrawer } from "@/components/opportunities/OpportunityIntelligenceDrawer"
+import {
+  generateOpportunityIntelligence,
+  type OpportunityIntelligenceResult,
+} from "@/lib/opportunities/opportunityIntelligenceService"
+import { getSanityOpportunityKnowledge } from "@/lib/sanity/sanityOpportunityService"
+import type { SanityOpportunityKnowledge } from "@/lib/sanity/sanityTypes"
 import type { RadarResult } from "@/lib/opportunities/radar/types"
 import type {
   ApplicationStatus,
@@ -123,10 +131,16 @@ export function OpportunitiesPage() {
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null)
   const [selectedMatch, setSelectedMatch] = useState<{ opportunity: Opportunity; match: ComprehensiveMatchResult } | null>(null)
   const [selectedPrepPlan, setSelectedPrepPlan] = useState<{ opportunity: Opportunity; plan: OpportunityPrepPlanData } | null>(null)
+  const [selectedIntelligenceOpp, setSelectedIntelligenceOpp] = useState<Opportunity | null>(null)
+  const [selectedSanityKnowledge, setSelectedSanityKnowledge] = useState<SanityOpportunityKnowledge | null>(null)
+  const [selectedIntelligenceResult, setSelectedIntelligenceResult] = useState<OpportunityIntelligenceResult | null>(null)
+  const [intelligenceStudentContext, setIntelligenceStudentContext] = useState<StudentContextPayload | null>(null)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   // Loading & Feedback states
   const [matchingId, setMatchingId] = useState<string | null>(null)
   const [prepId, setPrepId] = useState<string | null>(null)
+  const [intelligenceLoadingId, setIntelligenceLoadingId] = useState<string | null>(null)
   const [addedTasks, setAddedTasks] = useState<Set<string>>(new Set())
 
   // Handle Escape key to close modals
@@ -136,6 +150,7 @@ export function OpportunitiesPage() {
         setSelectedOpportunity(null)
         setSelectedMatch(null)
         setSelectedPrepPlan(null)
+        setIsDrawerOpen(false)
       }
     }
     window.addEventListener("keydown", handleKeyDown)
@@ -437,6 +452,42 @@ export function OpportunitiesPage() {
       setErrorMsg("Failed to generate AI preparation plan. Please try again.")
     } finally {
       setPrepId(null)
+    }
+  }
+
+  async function handleOpenIntelligence(opportunity: Opportunity) {
+    if (!user?.id) return
+    setIntelligenceLoadingId(opportunity.id)
+    setErrorMsg(null)
+    try {
+      const profile = await profileService.get(user.id)
+      const studentContext: StudentContextPayload = {
+        skills: profile?.skills ?? [],
+        careerGoals: profile?.placement_goals ?? [],
+        semester: profile?.semester ?? "Semester 6",
+        internshipInterests: profile?.internship_goals ?? [],
+        hackathonInterests: profile?.hackathon_interests ?? [],
+      }
+
+      const [sanityKnowledge, intelligence] = await Promise.all([
+        getSanityOpportunityKnowledge(opportunity.id),
+        generateOpportunityIntelligence({
+          session,
+          opportunity,
+          studentContext,
+        }),
+      ])
+
+      setSelectedIntelligenceOpp(opportunity)
+      setSelectedSanityKnowledge(sanityKnowledge)
+      setSelectedIntelligenceResult(intelligence)
+      setIntelligenceStudentContext(studentContext)
+      setIsDrawerOpen(true)
+    } catch (err) {
+      console.error("Opportunity Intelligence generation error:", err)
+      setErrorMsg("Failed to load Opportunity Intelligence. Please check your network connection.")
+    } finally {
+      setIntelligenceLoadingId(null)
     }
   }
 
@@ -795,35 +846,52 @@ export function OpportunitiesPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 pt-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handleRunMatch(opp)}
-                        disabled={matchingId === opp.id}
-                        className="text-xs"
-                      >
-                        {matchingId === opp.id ? (
-                          <Loader2 className="size-3 animate-spin mr-1" />
-                        ) : (
-                          <Zap className="size-3 text-amber-400 mr-1" />
-                        )}
-                        {match ? "View Fit" : "Analyze Fit"}
-                      </Button>
+                    <div className="pt-2 space-y-2">
                       <Button
                         variant="default"
                         size="sm"
-                        onClick={() => handleRunPrepPlan(opp)}
-                        disabled={prepId === opp.id}
-                        className="text-xs"
+                        onClick={() => handleOpenIntelligence(opp)}
+                        disabled={intelligenceLoadingId === opp.id}
+                        className="w-full text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm flex items-center justify-center gap-1.5"
                       >
-                        {prepId === opp.id ? (
-                          <Loader2 className="size-3 animate-spin mr-1" />
+                        {intelligenceLoadingId === opp.id ? (
+                          <Loader2 className="size-3.5 animate-spin" />
                         ) : (
-                          <Sparkles className="size-3 text-primary-foreground mr-1" />
+                          <Sparkles className="size-3.5" />
                         )}
-                        {hasPrep ? "View Plan" : "Prep Plan"}
+                        Am I actually ready for this?
                       </Button>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleRunMatch(opp)}
+                          disabled={matchingId === opp.id}
+                          className="text-xs"
+                        >
+                          {matchingId === opp.id ? (
+                            <Loader2 className="size-3 animate-spin mr-1" />
+                          ) : (
+                            <Zap className="size-3 text-amber-400 mr-1" />
+                          )}
+                          {match ? "View Fit" : "Analyze Fit"}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleRunPrepPlan(opp)}
+                          disabled={prepId === opp.id}
+                          className="text-xs"
+                        >
+                          {prepId === opp.id ? (
+                            <Loader2 className="size-3 animate-spin mr-1" />
+                          ) : (
+                            <Sparkles className="size-3 text-primary mr-1" />
+                          )}
+                          {hasPrep ? "View Plan" : "Prep Plan"}
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="pt-2">
@@ -1091,7 +1159,21 @@ export function OpportunitiesPage() {
                 ))}
               </div>
             </div>
-            <div className="pt-4 border-t border-border flex items-center justify-between">
+            <div className="pt-3 border-t border-border/60">
+              <Button
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs py-2.5 flex items-center justify-center gap-2 rounded-xl shadow-md"
+                onClick={() => handleOpenIntelligence(selectedOpportunity)}
+                disabled={intelligenceLoadingId === selectedOpportunity.id}
+              >
+                {intelligenceLoadingId === selectedOpportunity.id ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                Am I actually ready for this opportunity?
+              </Button>
+            </div>
+            <div className="pt-3 border-t border-border flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
                 {selectedOpportunity.deadline ? `Deadline: ${new Date(selectedOpportunity.deadline).toLocaleDateString()}` : "Deadline not specified"}
               </span>
@@ -1271,6 +1353,19 @@ export function OpportunitiesPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* MODAL 4: OPPORTUNITY INTELLIGENCE DRAWER */}
+      {selectedIntelligenceOpp && selectedIntelligenceResult && intelligenceStudentContext && (
+        <OpportunityIntelligenceDrawer
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+          opportunity={selectedIntelligenceOpp}
+          studentContext={intelligenceStudentContext}
+          sanityKnowledge={selectedSanityKnowledge}
+          intelligence={selectedIntelligenceResult}
+          session={session}
+        />
       )}
     </div>
   )
