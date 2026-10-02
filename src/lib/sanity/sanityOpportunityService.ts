@@ -1,6 +1,7 @@
 import { createClient } from "@sanity/client"
 import type { SanityOpportunityKnowledge } from "./sanityTypes"
 import { SANITY_FALLBACK_KNOWLEDGE } from "./sanityFallbackData"
+import type { Opportunity } from "../opportunities/opportunityTypes"
 
 const projectId = import.meta.env.VITE_SANITY_PROJECT_ID
 const dataset = import.meta.env.VITE_SANITY_DATASET || "production"
@@ -88,36 +89,220 @@ export const OPPORTUNITY_KNOWLEDGE_GROQ_QUERY = `*[_type == "opportunity" && (id
   }
 }`
 
+export const TITLE_GROQ_QUERY = `*[_type == "opportunity" && (lower(title) == $normTitle || title match $normTitle)][0]{
+  _id,
+  title,
+  slug,
+  type,
+  category,
+  description,
+  location,
+  remote,
+  deadline,
+  applicationOpenDate,
+  eventStartDate,
+  eventEndDate,
+  teamSizeMin,
+  teamSizeMax,
+  stipendPrize,
+  verificationState,
+  lastVerifiedAt,
+  officialUrl,
+  applicationUrl,
+  knowledgeBaseNotes,
+  organization->{
+    _id,
+    name,
+    slug,
+    website,
+    description,
+    industry
+  },
+  eligibility[]->{
+    _id,
+    ruleType,
+    description,
+    required,
+    degree,
+    year,
+    location,
+    skills[]->{ _id, name, slug, category, aliases, description }
+  },
+  requiredSkills[]->{
+    _id,
+    name,
+    slug,
+    category,
+    aliases,
+    description
+  },
+  applicationProcess->{
+    _id,
+    title,
+    steps,
+    documents,
+    selectionStages,
+    estimatedEffort
+  },
+  resources[]->{
+    _id,
+    title,
+    type,
+    url,
+    skills[]->{ _id, name, slug, category },
+    description
+  },
+  source->{
+    _id,
+    name,
+    url,
+    sourceType,
+    verifiedAt,
+    notes
+  }
+}`
+
+export function generateGenericOpportunityFallback(opportunity: Opportunity): SanityOpportunityKnowledge {
+  const isRemote = (opportunity.location || "").toLowerCase().includes("remote") || (opportunity.location || "").toLowerCase().includes("global")
+
+  return {
+    _id: `fallback-${opportunity.id}`,
+    title: opportunity.title,
+    slug: { current: opportunity.id },
+    organization: {
+      _id: `org-gen-${opportunity.id}`,
+      name: opportunity.organization,
+      slug: { current: opportunity.organization.toLowerCase().replace(/[^a-z0-9]+/g, "-") },
+      website: opportunity.source_url,
+      description: `${opportunity.organization} official program overview and guidelines.`,
+      industry: opportunity.category || "Technology",
+    },
+    type: opportunity.type,
+    category: opportunity.category,
+    description: opportunity.description,
+    eligibility: (opportunity.eligibility && opportunity.eligibility.length > 0
+      ? opportunity.eligibility
+      : ["General eligibility criteria as published by organizer."]
+    ).map((ruleText, idx) => ({
+      _id: `elig-gen-${opportunity.id}-${idx}`,
+      ruleType: "general",
+      description: ruleText,
+      required: true,
+    })),
+    requiredSkills: (opportunity.required_skills && opportunity.required_skills.length > 0
+      ? opportunity.required_skills
+      : ["Software Engineering", "Problem Solving"]
+    ).map((skillName, idx) => ({
+      _id: `skill-gen-${opportunity.id}-${idx}`,
+      name: skillName,
+      slug: { current: skillName.toLowerCase().replace(/[^a-z0-9]+/g, "-") },
+      category: "general",
+    })),
+    location: opportunity.location || "Remote / Online",
+    remote: isRemote,
+    stipendPrize: opportunity.stipend_prize ?? undefined,
+    applicationProcess: {
+      _id: `proc-gen-${opportunity.id}`,
+      title: `${opportunity.title} Application Pipeline`,
+      steps: [
+        `Review official requirements for ${opportunity.title} at ${opportunity.organization}.`,
+        "Prepare application portfolio and project evidence.",
+        "Submit final application materials via official program portal.",
+      ],
+      documents: ["Resume / CV", "Portfolio / Project Repository", "Application Form"],
+      selectionStages: [
+        { stageName: "Application Review", description: `Initial screening for ${opportunity.title}.` },
+        { stageName: "Final Evaluation", description: "Selection and onboarding." },
+      ],
+      estimatedEffort: "Standard application review process",
+    },
+    resources: [
+      {
+        _id: `res-gen-${opportunity.id}`,
+        title: `${opportunity.organization} Official Portal`,
+        type: "guide",
+        url: opportunity.source_url,
+        description: `Official website and guidelines for ${opportunity.title}.`,
+      },
+    ],
+    source: {
+      _id: `src-gen-${opportunity.id}`,
+      name: `${opportunity.organization} Portal`,
+      url: opportunity.source_url,
+      sourceType: "official_website",
+    },
+    verificationState: opportunity.verification_state || "verified",
+    officialUrl: opportunity.source_url,
+    applicationUrl: opportunity.registration_url || opportunity.source_url,
+    knowledgeBaseNotes: `Opportunity-specific fallback generated for ${opportunity.title}.`,
+    isFallback: true,
+  }
+}
+
 export async function getSanityOpportunityKnowledge(
-  opportunityIdOrSlug: string
+  opportunityIdOrSlug: string,
+  opportunityTitle?: string,
+  opportunityObj?: Opportunity
 ): Promise<SanityOpportunityKnowledge | null> {
   const normId = opportunityIdOrSlug.trim()
+  const normTitle = opportunityTitle?.trim().toLowerCase()
 
   // 1. Try querying Sanity if configured
   if (sanityClient) {
     try {
-      const data: SanityOpportunityKnowledge | null = await sanityClient.fetch(
+      let data: SanityOpportunityKnowledge | null = await sanityClient.fetch(
         OPPORTUNITY_KNOWLEDGE_GROQ_QUERY,
         { oppId: normId }
       )
+
+      if (!data && normTitle) {
+        data = await sanityClient.fetch(TITLE_GROQ_QUERY, { normTitle })
+      }
+
+      // DEFENSIVE IDENTITY VALIDATION LAYER
       if (data) {
-        return {
-          ...data,
-          isFallback: false,
+        const matchesId = data._id === normId || data.slug?.current === normId
+        const matchesTitle = normTitle
+          ? data.title.toLowerCase().trim() === normTitle ||
+            data.title.toLowerCase().includes(normTitle) ||
+            normTitle.includes(data.title.toLowerCase().trim())
+          : true
+
+        if (matchesId || matchesTitle) {
+          return {
+            ...data,
+            isFallback: false,
+          }
+        } else {
+          console.warn(
+            `[Identity Validation] Rejected mismatched Sanity document. Requested "${normId}" ("${opportunityTitle}"), but Sanity returned "${data._id}" ("${data.title}").`
+          )
         }
       }
     } catch (err) {
-      console.warn("Sanity GROQ fetch failed, using demo fallback knowledge:", err)
+      console.warn("Sanity GROQ fetch failed, falling back to opportunity-specific fallback knowledge:", err)
     }
   }
 
-  // 2. Demo fallback / offline resilience for hackathon evaluation
-  const fallback = SANITY_FALLBACK_KNOWLEDGE[normId] || SANITY_FALLBACK_KNOWLEDGE["opp-gsoc"]
-  if (fallback) {
+  // 2. Strict static fallback lookup by ID, slug, or title match
+  const staticFallback =
+    SANITY_FALLBACK_KNOWLEDGE[normId] ||
+    Object.values(SANITY_FALLBACK_KNOWLEDGE).find(
+      (f) =>
+        f.slug?.current === normId ||
+        (normTitle && f.title.toLowerCase().trim() === normTitle)
+    )
+
+  if (staticFallback) {
     return {
-      ...fallback,
+      ...staticFallback,
       isFallback: true,
     }
+  }
+
+  // 3. Dynamic generic fallback constructed STRICTLY from the selected opportunity's metadata
+  if (opportunityObj) {
+    return generateGenericOpportunityFallback(opportunityObj)
   }
 
   return null

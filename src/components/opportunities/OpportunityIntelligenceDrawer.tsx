@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   AlertCircle,
   ArrowRight,
@@ -49,6 +49,12 @@ export function OpportunityIntelligenceDrawer({
   const [qaInput, setQaInput] = useState("")
   const [isQaLoading, setIsQaLoading] = useState(false)
   const [qaHistory, setQaHistory] = useState<Array<{ question: string; answer: string; suggestedActions?: string[] }>>([])
+
+  // Reset QA history whenever selected opportunity changes
+  useEffect(() => {
+    setQaHistory([])
+    setQaInput("")
+  }, [opportunity?.id])
 
   if (!isOpen) return null
 

@@ -52,8 +52,8 @@ export async function generateOpportunityIntelligence({
   opportunity: Opportunity
   studentContext: StudentContextPayload
 }): Promise<OpportunityIntelligenceResult> {
-  // 1. Fetch structured Sanity knowledge
-  const sanityKnowledge = await getSanityOpportunityKnowledge(opportunity.id)
+  // 1. Fetch structured Sanity knowledge with strict identity validation & opportunity-specific fallback
+  const sanityKnowledge = await getSanityOpportunityKnowledge(opportunity.id, opportunity.title, opportunity)
 
   // 2. Compute authoritative deterministic match
   const deterministic = calculateDeterministicMatch(studentContext, opportunity)

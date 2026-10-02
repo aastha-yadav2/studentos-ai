@@ -470,7 +470,7 @@ export function OpportunitiesPage() {
       }
 
       const [sanityKnowledge, intelligence] = await Promise.all([
-        getSanityOpportunityKnowledge(opportunity.id),
+        getSanityOpportunityKnowledge(opportunity.id, opportunity.title, opportunity),
         generateOpportunityIntelligence({
           session,
           opportunity,
